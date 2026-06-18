@@ -151,7 +151,7 @@ export function upsertSession(input: {
   const steps: StepRecord[] = Array.from({ length: input.totalSteps }, (_, i) => blankStep(i + 1));
   const session: StoredSession = existing ?? {
     sessionId: input.sessionId,
-    studentName: input.studentName ?? "You (live)",
+    studentName: input.studentName ?? "Student",
     experimentId: input.experimentId,
     experimentName: input.experimentName,
     currentStep: 1,
