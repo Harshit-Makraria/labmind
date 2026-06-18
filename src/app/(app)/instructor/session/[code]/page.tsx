@@ -1,12 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, FileDown,
-  FlaskConical, RefreshCw, ShieldAlert, Target, Users,
+  FlaskConical, RefreshCw, ShieldAlert, Square, Target, Users,
 } from "lucide-react";
 import Link from "next/link";
-import { use } from "react";
+import { use, useState } from "react";
+import { toast } from "sonner";
 import type { SessionSummary, InstructorSession } from "@/lib/types";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -22,6 +23,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function SessionDetailPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
+  const qc = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
 
   const { data: session } = useQuery<InstructorSession>({
     queryKey: ["instructor-session", code],
@@ -35,6 +38,26 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
   });
 
   const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : "—";
+  const isEnded = session?.status === "ended";
+
+  const endSession = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/instructor/sessions/${code}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "ended" }),
+      });
+      if (!res.ok) throw new Error("Failed to end session");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success("Session ended — students can no longer join.");
+      qc.invalidateQueries({ queryKey: ["instructor-session", code] });
+      qc.invalidateQueries({ queryKey: ["instructor-sessions"] });
+      setConfirming(false);
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
   const completed = students.filter((s) => s.status === "completed").length;
   const alerts = students.reduce((n, s) => n + s.safety_alert_count, 0);
   const avgProgress = students.length
@@ -63,7 +86,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
             {session?.date && <span>· {session.date}</span>}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {students.length > 0 && (
             <a
               href={`/api/instructor/sessions/${code}/students/export`}
@@ -73,8 +96,39 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
               <FileDown size={13} /> Export CSV
             </a>
           )}
+          {!isEnded && !confirming && (
+            <button
+              onClick={() => setConfirming(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/5 px-3 py-1.5 text-xs font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10"
+            >
+              <Square size={12} /> End Session
+            </button>
+          )}
+          {!isEnded && confirming && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--color-danger)] font-semibold">End session?</span>
+              <button
+                onClick={() => endSession.mutate()}
+                disabled={endSession.isPending}
+                className="rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {endSession.isPending ? "Ending…" : "Yes, end it"}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                className="rounded-lg border border-black/12 px-3 py-1.5 text-xs font-semibold text-[var(--color-muted)]"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {isEnded && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-black/8 px-3 py-1.5 text-xs font-semibold text-[var(--color-muted)]">
+              <Square size={12} /> Session ended
+            </span>
+          )}
           <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
-            <RefreshCw size={12} className="animate-spin" /> {lastUpdate}
+            <RefreshCw size={12} className={isEnded ? "" : "animate-spin"} /> {lastUpdate}
           </div>
         </div>
       </div>

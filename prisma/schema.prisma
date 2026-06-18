@@ -101,6 +101,7 @@ model InstructorSession {
   institution    String       @default("")
   courseCode     String       @default("")
   date           String
+  status         String       @default("active")
   notes          Json         @default("{}")
   students       LabSession[]
   createdAt      DateTime     @default(now())

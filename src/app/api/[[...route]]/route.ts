@@ -318,6 +318,13 @@ app.get("/instructor/sessions/:code", async (c) => {
   return c.json(sess);
 });
 
+app.patch("/instructor/sessions/:code", async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const { status } = await c.req.json<{ status: string }>();
+  await db.instructorSession.update({ where: { code }, data: { status } as Record<string, unknown> });
+  return c.json({ ok: true, status });
+});
+
 app.post("/instructor/sessions", async (c) => {
   const body = await c.req.json();
   const experimentId = typeof body.experiment_id === "string" && body.experiment_id.trim() ? body.experiment_id.trim() : DEFAULT_EXPERIMENT_ID;
@@ -429,6 +436,7 @@ app.post("/student/join", async (c) => {
   const { code, student_name, session_id } = await c.req.json();
   const instrSession = await getInstructorSession(code);
   if (!instrSession) return c.json({ error: "Invalid session code" }, 404);
+  if (instrSession.status === "ended") return c.json({ error: "This session has been ended by the instructor" }, 403);
   const exp = getExperiment(instrSession.experiment_id);
   upsertSession({ sessionId: session_id, studentName: student_name ?? "Student", experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length });
   await addStudentToSession(code, session_id);

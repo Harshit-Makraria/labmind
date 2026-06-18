@@ -254,6 +254,9 @@ export interface InstructorSession {
   created_at: string;
   student_session_ids: string[];
   require_verification?: boolean;
+  status?: string;
+  institution?: string;
+  course_code?: string;
 }
 
 // ─── Verification queue ─────────────────────────────────────────────
