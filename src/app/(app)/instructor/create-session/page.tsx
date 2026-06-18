@@ -13,7 +13,7 @@ export default function CreateSessionPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pdfName, setPdfName] = useState<string | null>(null);
   const [pdfUploading, setPdfUploading] = useState(false);
-  const [form, setForm] = useState({ session_name: "", experiment_name: "", experiment_id: "", batch: "", department: "", date: new Date().toISOString().split("T")[0], require_verification: false });
+  const [form, setForm] = useState({ session_name: "", experiment_name: "", experiment_id: "", batch: "", department: "", institution: "", course_code: "", date: new Date().toISOString().split("T")[0], require_verification: false });
 
   const { data: experiments } = useQuery<ExperimentMeta[]>({ queryKey: ["experiments"], queryFn: async () => (await fetch("/api/experiments")).json() });
 
@@ -121,6 +121,14 @@ export default function CreateSessionPage() {
           <p className="mt-1 text-xs text-[var(--color-muted)]">Pick a library protocol for the session steps, or leave it blank to use the default.</p>
         </Field>
 
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Institution">
+            <input value={form.institution} onChange={(e) => setForm({ ...form, institution: e.target.value })} placeholder="University of Delhi" className="input-base" />
+          </Field>
+          <Field label="Course code">
+            <input value={form.course_code} onChange={(e) => setForm({ ...form, course_code: e.target.value })} placeholder="CHEM-201" className="input-base" />
+          </Field>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Batch">
             <input value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })} placeholder="2025-A" className="input-base" />

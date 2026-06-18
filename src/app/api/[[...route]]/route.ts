@@ -18,6 +18,7 @@ import { interpret } from "@/server/tools/result-interpreter";
 import { parseProtocol } from "@/server/tools/protocol-parser";
 import { buildLearningSummary, buildReport } from "@/server/tools/summary";
 import { MOCK_SESSIONS } from "@/server/data/mock-sessions";
+import { generatePrelabQuiz, scorePrelabQuiz } from "@/server/tools/prelab-quiz";
 import {
   addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
   flagDownstreamSteps, getAgentDecisionsFromDB, getSessionDetailFromDB,
@@ -327,10 +328,75 @@ app.post("/instructor/sessions", async (c) => {
     experiment_name: experimentName,
     batch: body.batch ?? "",
     department: body.department ?? "",
+    institution: body.institution ?? "",
+    course_code: body.course_code ?? "",
     date: body.date ?? new Date().toISOString().split("T")[0],
     require_verification: !!body.require_verification,
-  });
+  } as Parameters<typeof createInstructorSession>[0]);
   return c.json(session);
+});
+
+// ─── Pre-lab quiz ────────────────────────────────────────────────────
+app.get("/lab/:sessionId/prelab", async (c) => {
+  const { sessionId } = c.req.param();
+  const session = await hydrateSession(sessionId);
+  const experimentId = session?.experimentId;
+  const exp = getExperiment(experimentId);
+  const quiz = await generatePrelabQuiz(exp.protocol, exp.id);
+  // Strip correct answers before sending to client
+  return c.json({ ...quiz, questions: quiz.questions.map(({ correct: _c, ...q }) => q) });
+});
+
+app.post("/lab/:sessionId/prelab", async (c) => {
+  const { sessionId } = c.req.param();
+  const { answers } = await c.req.json<{ answers: Record<string, number> }>();
+  const session = await hydrateSession(sessionId);
+  const exp = getExperiment(session?.experimentId);
+  const quiz = await generatePrelabQuiz(exp.protocol, exp.id);
+  const result = scorePrelabQuiz(quiz, answers);
+  // Persist result
+  await db.labSession.update({ where: { id: sessionId }, data: { prelabScore: result.score, prelabPassed: result.passed } }).catch(() => {});
+  return c.json(result);
+});
+
+// ─── Hypothesis ───────────────────────────────────────────────────────
+app.post("/lab/:sessionId/hypothesis", async (c) => {
+  const { sessionId } = c.req.param();
+  const { hypothesis } = await c.req.json<{ hypothesis: string }>();
+  await db.labSession.update({ where: { id: sessionId }, data: { hypothesis } }).catch(() => {});
+  return c.json({ ok: true });
+});
+
+// ─── Benchmarking ─────────────────────────────────────────────────────
+app.get("/lab/:sessionId/benchmark", async (c) => {
+  const { sessionId } = c.req.param();
+  const row = await db.labSession.findUnique({ where: { id: sessionId }, select: { experimentId: true, deviationPercent: true } });
+  if (!row) return c.json({ class_avg_deviation: null, your_deviation: null, percentile: null });
+  const peers = await db.labSession.findMany({
+    where: { experimentId: row.experimentId, deviationPercent: { not: null }, id: { not: sessionId } },
+    select: { deviationPercent: true },
+  });
+  const deviations = peers.map((p) => p.deviationPercent!).filter((d) => d !== null);
+  const classAvg = deviations.length ? Math.round(deviations.reduce((a, b) => a + b, 0) / deviations.length * 10) / 10 : null;
+  const your = row.deviationPercent;
+  const better = your !== null ? deviations.filter((d) => d > your).length : 0;
+  const percentile = deviations.length ? Math.round((better / deviations.length) * 100) : null;
+  return c.json({ class_avg_deviation: classAvg, your_deviation: your, percentile, peer_count: deviations.length });
+});
+
+// ─── CSV export ───────────────────────────────────────────────────────
+app.get("/instructor/sessions/:code/students/export", async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const rows = await db.labSession.findMany({ where: { instructorCode: code }, orderBy: { updatedAt: "desc" } });
+  const lines = [
+    "Student Name,Experiment,Steps Completed,Total Steps,Status,Deviation %,Safety Alerts,Overrides,Pre-lab Score,Pre-lab Passed,Updated At",
+    ...rows.map((r) => {
+      const steps = (r.steps as { manual_override?: boolean }[]) ?? [];
+      const overrides = steps.filter((s) => s.manual_override).length;
+      return [r.studentName, r.experimentName, r.currentStep, r.totalSteps, r.status, r.deviationPercent ?? "", r.safetyAlertCount, overrides, r.prelabScore ?? "", r.prelabPassed ?? "", r.updatedAt.toISOString()].join(",");
+    }),
+  ].join("\n");
+  return new Response(lines, { headers: { "Content-Type": "text/csv", "Content-Disposition": `attachment; filename="session-${code}.csv"` } });
 });
 
 // ─── Verification queue ──────────────────────────────────────────────

@@ -1,10 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, Lightbulb, Loader2, Star, Target, Trophy } from "lucide-react";
+import { ArrowRight, BookOpen, Lightbulb, Loader2, Star, Target, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
 import type { LearningSummary } from "@/lib/types";
+
+interface Benchmark { class_avg_deviation: number | null; your_deviation: number | null; percentile: number | null; peer_count: number; }
 
 export default function SummaryPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
@@ -12,6 +14,12 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
   const { data } = useQuery<LearningSummary>({
     queryKey: ["summary", sessionId],
     queryFn: async () => (await fetch(`/api/lab/${sessionId}/summary`, { cache: "no-store" })).json(),
+  });
+
+  const { data: benchmark } = useQuery<Benchmark>({
+    queryKey: ["benchmark", sessionId],
+    queryFn: async () => (await fetch(`/api/lab/${sessionId}/benchmark`)).json(),
+    enabled: !!data,
   });
 
   if (!data) return (
@@ -98,6 +106,30 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
           ))}
         </ul>
       </div>
+
+      {/* Peer benchmarking */}
+      {benchmark && benchmark.peer_count > 0 && (
+        <div className="card p-5">
+          <h3 className="mb-3 flex items-center gap-2 font-bold text-[var(--color-navy)]">
+            <Users size={18} className="text-[var(--color-brand)]" /> How you compared to the class
+          </h3>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-xl bg-[var(--color-surface)] p-3">
+              <p className="text-xl font-extrabold text-[var(--color-navy)]">{benchmark.your_deviation !== null ? `${benchmark.your_deviation}%` : "—"}</p>
+              <p className="text-xs text-[var(--color-muted)]">Your deviation</p>
+            </div>
+            <div className="rounded-xl bg-[var(--color-surface)] p-3">
+              <p className="text-xl font-extrabold text-[var(--color-navy)]">{benchmark.class_avg_deviation !== null ? `${benchmark.class_avg_deviation}%` : "—"}</p>
+              <p className="text-xs text-[var(--color-muted)]">Class average</p>
+            </div>
+            <div className="rounded-xl bg-[var(--color-surface)] p-3">
+              <p className="text-xl font-extrabold text-[var(--color-accent)]">{benchmark.percentile !== null ? `Top ${100 - benchmark.percentile}%` : "—"}</p>
+              <p className="text-xs text-[var(--color-muted)]">Percentile</p>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-[var(--color-muted)]">Based on {benchmark.peer_count} peer result{benchmark.peer_count !== 1 ? "s" : ""} for this experiment.</p>
+        </div>
+      )}
 
       {/* Improvement suggestions */}
       <div className="card p-5">

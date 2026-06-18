@@ -79,6 +79,9 @@ model LabSession {
   steps            Json                @default("[]")
   safetyLog        Json                @default("[]")
   notes            Json                @default("[]")
+  hypothesis       String?
+  prelabScore      Float?
+  prelabPassed     Boolean?
   instructorCode   String?
   instructor       InstructorSession?  @relation(fields: [instructorCode], references: [code])
   verifications    VerificationEntry[]
@@ -95,6 +98,8 @@ model InstructorSession {
   experimentName String
   batch          String       @default("")
   department     String       @default("")
+  institution    String       @default("")
+  courseCode     String       @default("")
   date           String
   notes          Json         @default("{}")
   students       LabSession[]

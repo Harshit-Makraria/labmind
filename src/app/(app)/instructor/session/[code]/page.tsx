@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download,
+  AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, FileDown,
   FlaskConical, RefreshCw, ShieldAlert, Target, Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -63,8 +63,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
             {session?.date && <span>· {session.date}</span>}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
-          <RefreshCw size={12} className="animate-spin" /> {lastUpdate}
+        <div className="flex items-center gap-3">
+          {students.length > 0 && (
+            <a
+              href={`/api/instructor/sessions/${code}/students/export`}
+              download
+              className="inline-flex items-center gap-1.5 rounded-lg border border-black/12 px-3 py-1.5 text-xs font-semibold text-[var(--color-navy)] hover:bg-[var(--color-surface)]"
+            >
+              <FileDown size={13} /> Export CSV
+            </a>
+          )}
+          <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+            <RefreshCw size={12} className="animate-spin" /> {lastUpdate}
+          </div>
         </div>
       </div>
 

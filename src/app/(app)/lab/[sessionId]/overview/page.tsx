@@ -2,7 +2,8 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, FlaskConical, Layers, Loader2, ShieldAlert, Zap } from "lucide-react";
+import { BookOpen, Clock, FlaskConical, Layers, Lightbulb, Loader2, ShieldAlert, Zap } from "lucide-react";
+import { toast } from "sonner";
 import { loadSession } from "@/hooks/useSession";
 import type { ClientSession } from "@/hooks/useSession";
 
@@ -10,6 +11,8 @@ export default function OverviewPage({ params }: { params: Promise<{ sessionId: 
   const { sessionId } = use(params);
   const router = useRouter();
   const [session, setSession] = useState<ClientSession | null>(null);
+  const [hypothesis, setHypothesis] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { setSession(loadSession(sessionId)); }, [sessionId]);
 
@@ -26,6 +29,19 @@ export default function OverviewPage({ params }: { params: Promise<{ sessionId: 
   const safetyFlags = [...new Set(p.steps.flatMap((s) => s.safety_flags).filter(Boolean))];
   const hasVision = p.steps.some((s) => s.vision_check_required);
 
+  async function startExperiment() {
+    if (hypothesis.trim()) {
+      setSaving(true);
+      await fetch(`/api/lab/${sessionId}/hypothesis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hypothesis: hypothesis.trim() }),
+      }).catch(() => {});
+      setSaving(false);
+    }
+    router.push(`/lab/${sessionId}`);
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-5 py-2">
       {/* Header */}
@@ -41,12 +57,29 @@ export default function OverviewPage({ params }: { params: Promise<{ sessionId: 
             ? "estimate the size of an unknown DNA fragment using gel electrophoresis"
             : "measure the rate of a clock reaction and relate it to reactant concentrations"}.
         </p>
-
         <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/70">
-          <span className="flex items-center gap-1"><Clock size={14} /> ~{session.protocol.steps.length * 5} min</span>
+          <span className="flex items-center gap-1"><Clock size={14} /> ~{p.steps.length * 5} min</span>
           <span className="flex items-center gap-1"><Layers size={14} /> {p.steps.length} steps</span>
           {hasVision && <span className="flex items-center gap-1"><Zap size={14} /> AI verification required</span>}
         </div>
+      </div>
+
+      {/* Hypothesis */}
+      <div className="card p-5">
+        <h3 className="mb-1 flex items-center gap-2 font-bold text-[var(--color-navy)]">
+          <Lightbulb size={18} className="text-[var(--color-warning)]" /> Your prediction
+        </h3>
+        <p className="mb-3 text-sm text-[var(--color-muted)]">What result do you expect? Write your hypothesis before starting — LabMind will compare it to your actual result.</p>
+        <textarea
+          value={hypothesis}
+          onChange={(e) => setHypothesis(e.target.value)}
+          placeholder={`e.g. "I predict the concentration of HCl is approximately 0.1 mol/L because…"`}
+          rows={3}
+          className="w-full resize-none rounded-xl border border-black/15 px-4 py-3 text-sm outline-none focus:border-[var(--color-brand)]"
+        />
+        {hypothesis.trim() && (
+          <p className="mt-1 text-xs text-[var(--color-accent)]">✓ Your prediction will be saved and reviewed at the end</p>
+        )}
       </div>
 
       {/* Materials */}
@@ -78,6 +111,23 @@ export default function OverviewPage({ params }: { params: Promise<{ sessionId: 
         </div>
       )}
 
+      {/* Pre-lab quiz prompt */}
+      <div className="card border-[var(--color-brand)]/20 bg-[var(--color-brand)]/5 p-5">
+        <div className="flex items-start gap-3">
+          <BookOpen size={20} className="mt-0.5 shrink-0 text-[var(--color-brand)]" />
+          <div>
+            <p className="font-semibold text-[var(--color-navy)]">Pre-lab quiz available</p>
+            <p className="mt-0.5 text-sm text-[var(--color-muted)]">Test your understanding of this experiment before starting. Takes ~2 minutes.</p>
+            <button
+              onClick={() => router.push(`/lab/${sessionId}/prelab`)}
+              className="mt-2 text-sm font-semibold text-[var(--color-brand)] hover:underline"
+            >
+              Take the pre-lab quiz →
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Step overview */}
       <div className="card p-5">
         <h3 className="mb-3 font-bold text-[var(--color-navy)]">Procedure overview</h3>
@@ -95,10 +145,12 @@ export default function OverviewPage({ params }: { params: Promise<{ sessionId: 
       </div>
 
       <button
-        onClick={() => router.push(`/lab/${sessionId}`)}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-4 text-lg font-bold text-white shadow-lg hover:brightness-110"
+        onClick={startExperiment}
+        disabled={saving}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] py-4 text-lg font-bold text-white shadow-lg hover:brightness-110 disabled:opacity-60"
       >
-        <FlaskConical size={22} /> Start Experiment
+        {saving ? <Loader2 size={22} className="animate-spin" /> : <FlaskConical size={22} />}
+        {saving ? "Saving…" : "Start Experiment"}
       </button>
     </div>
   );
