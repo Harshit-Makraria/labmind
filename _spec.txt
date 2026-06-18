@@ -1,0 +1,688 @@
+LabMind — AI Lab Partner
+Prototype Build Specification
+Team BitX  ·  Capgemini Exceller Agentify Buildathon 2026
+Complete Technical Specification for Claude Code
+⚠️  Purpose of This Document
+This document is a complete, self-contained specification intended to be fed directly to Claude Code to build a working, jury-ready prototype of LabMind. It includes all features from the pitch deck, system architecture, file/folder structure, API contracts, UI screens, and implementation notes — so that Claude Code can produce a fully functional prototype in a single pass.
+
+1. Project Overview
+LabMind is a mobile-first agentic AI companion for physical science labs. It watches, guides, and corrects students in real time during live experiments — replacing the absent TA with a multimodal AI agent that reads burette levels from photos, cross-checks experimental steps, detects reagent conflicts, and delivers experiment-specific result interpretation.
+
+1.1  Problem Statement
+Pain Point
+Evidence
+Impact
+1 TA per 25–35 students
+AAAS 2011 Vision &amp; Change report
+Questions go unanswered during critical lab hour
+~60% lab time lost to errors &amp; confusion
+PNAS 2019 (Freeman et al.)
+Downstream results silently invalidated
+Reagent conflicts go undetected
+Team instructor survey (n=4)
+Safety incidents, wasted materials
+Students record &apos;human error&apos; with no analysis
+Team survey (83% of 18 students)
+Learning outcome is never achieved
+Zero specialised AI agents for physical labs today
+Competitive analysis (Labster, Vernier, Pasco)
+Entire market gap — no competitor addresses this
+
+1.2  Target Users
+Undergraduate STEM students performing physical lab experiments (Phase 1: acid-base titration)
+Lab instructors who need real-time class-wide progress visibility
+Phase 2+ expansion: biology (gel electrophoresis), organic chemistry, general chemistry
+
+1.3  Prototype Scope (What to Build)
+The prototype must demonstrate ALL five core capabilities shown in the pitch deck as a working web app:
+Feature 1: Protocol Ingestion &amp; Step-by-Step Guidance
+Feature 2: Computer Vision Photo Verification (burette reading via GPT-4o Vision)
+Feature 3: Safety Alert Engine (reagent conflict detection)
+Feature 4: Result Interpretation Engine (deviation analysis + diagnosis)
+Feature 5: Instructor Dashboard (real-time class-wide progress)
+
+
+2. Complete Feature Specifications
+2.1  Feature 1 — Protocol Ingestion &amp; Step-by-Step Guidance
+Description
+Student uploads a lab PDF. The backend parses it into an ordered state machine of steps. Each step presents: reagents needed, timing, safety flags, and the underlying science explanation. A photo capture is student-initiated at step completion.
+
+Functional Requirements
+PDF upload UI on the student home screen — accept .pdf files up to 10 MB
+On upload, call POST /api/protocol/parse — backend sends PDF text to GPT-4o to extract steps as a JSON state machine
+Each step object contains: step_number, title, instructions[], reagents[], duration_seconds, safety_flags[], science_explanation
+Render step cards one at a time: large step number, instruction text, reagent chips, a timer (if duration specified), safety flag banner (red if safety_flags non-empty)
+&apos;Mark Complete &amp; Capture Photo&apos; button at bottom of each step card — opens camera/file picker
+After photo, trigger Feature 2 (Vision Check) before advancing to next step
+Cross-step reasoning: if a step is skipped or failed, flag dependent downstream steps with a yellow warning badge
+Progress bar at top shows completed / total steps
+
+State Machine Schema (JSON)
+POST /api/protocol/parse
+Request:  { &quot;pdf_base64&quot;: &quot;&lt;base64 string&gt;&quot;, &quot;session_id&quot;: &quot;uuid&quot; }
+Response: {
+  &quot;experiment_name&quot;: &quot;Acid-Base Titration&quot;,
+  &quot;steps&quot;: [
+    {
+      &quot;step_number&quot;: 1,
+      &quot;title&quot;: &quot;Prepare Burette&quot;,
+      &quot;instructions&quot;: [&quot;Rinse burette with distilled water&quot;, &quot;Fill with 0.1M NaOH&quot;],
+      &quot;reagents&quot;: [{ &quot;name&quot;: &quot;NaOH&quot;, &quot;concentration&quot;: &quot;0.1M&quot;, &quot;volume_ml&quot;: 50 }],
+      &quot;duration_seconds&quot;: 300,
+      &quot;safety_flags&quot;: [],
+      &quot;science_explanation&quot;: &quot;Rinsing removes contaminants that alter molarity.&quot;,
+      &quot;expected_observation&quot;: &quot;Burette reads 0.00 mL at start&quot;,
+      &quot;vision_check_required&quot;: true,
+      &quot;vision_expected&quot;: { &quot;type&quot;: &quot;burette_reading&quot;, &quot;expected_value&quot;: 0.0, &quot;tolerance&quot;: 0.1 }
+    }
+  ]
+}
+
+2.2  Feature 2 — Computer Vision Photo Verification
+Description
+When a student taps &apos;Capture Photo&apos; after completing a step, the image is sent to GPT-4o Vision. The model reads the burette level (or colour change, or gel band — experiment-dependent) and compares to the expected observation. Low-confidence results trigger a re-photograph prompt before the student can proceed.
+
+Functional Requirements
+Student captures a photo using the device camera (mobile-first) or uploads an image file
+Image sent to POST /api/vision/check along with current step context
+Backend calls GPT-4o Vision with a structured prompt: &apos;Read the burette meniscus value in this photo. Respond with JSON: { reading: float, confidence: float 0-1, notes: string }&apos;
+If confidence &gt;= 0.75 AND reading within tolerance: show green check, allow proceed
+If confidence &lt; 0.75 OR reading out of tolerance: show amber warning with specific message, prompt re-photograph
+After 2 failed re-photographs: allow manual override with student-entered value + note logged for instructor
+Vision result stored in session state for Result Interpretation (Feature 4)
+Streaming response from GPT-4o — show typing indicator, target &lt; 3s perceived latency
+
+API Contract
+POST /api/vision/check
+Request: {
+  &quot;session_id&quot;: &quot;uuid&quot;,
+  &quot;step_number&quot;: 4,
+  &quot;image_base64&quot;: &quot;&lt;base64&gt;&quot;,
+  &quot;expected&quot;: { &quot;type&quot;: &quot;burette_reading&quot;, &quot;expected_value&quot;: 24.5, &quot;tolerance&quot;: 0.1 }
+}
+Response: {
+  &quot;reading&quot;: 24.6,
+  &quot;confidence&quot;: 0.91,
+  &quot;pass&quot;: true,
+  &quot;deviation&quot;: 0.1,
+  &quot;message&quot;: &quot;Burette reads 24.60 mL — within tolerance (±0.1 mL). Proceed.&quot;,
+  &quot;notes&quot;: &quot;Meniscus clearly visible, lighting good.&quot;
+}
+
+2.3  Feature 3 — Safety Alert Engine
+Description
+Reagent conflict detection runs on every step. If a step introduces a reagent that conflicts with a reagent already used (e.g. mixing HCl and NaOH outside titration context, or adding concentrated acid to water in wrong order), an immediate modal alert is displayed that halts progress until the student acknowledges the risk.
+
+Functional Requirements
+Hardcode a reagent safety database (JSON file in backend) for Phase 1 with at least 20 reagent pairs and their conflict type/severity
+On each step advance, call POST /api/safety/check with the step&apos;s reagents + session reagent history
+If conflict detected: display full-screen red modal with: reagent names, conflict type, hazard description, recommended action, cannot be dismissed without pressing &apos;I Acknowledge the Risk&apos;
+Log all safety alerts to session record (visible on instructor dashboard)
+Safety check is synchronous — student cannot proceed until check completes
+For prototype: also check concentration (e.g., &gt; 6M HCl → strong acid warning)
+
+Safety Database Sample (reagent_safety.json)
+{
+  &quot;conflicts&quot;: [
+    { &quot;reagents&quot;: [&quot;HCl&quot;, &quot;NaOH&quot;], &quot;type&quot;: &quot;Neutralization&quot;, &quot;severity&quot;: &quot;medium&quot;,
+      &quot;description&quot;: &quot;Exothermic neutralization. Controlled in titration context.&quot;,
+      &quot;action&quot;: &quot;Proceed slowly. Swirl flask gently.&quot; },
+    { &quot;reagents&quot;: [&quot;H2SO4&quot;, &quot;NaOH&quot;], &quot;type&quot;: &quot;Violent Neutralization&quot;, &quot;severity&quot;: &quot;high&quot;,
+      &quot;description&quot;: &quot;Concentrated H2SO4 + NaOH: extreme exothermic reaction.&quot;,
+      &quot;action&quot;: &quot;STOP. Verify concentrations. Use dilute solutions only.&quot; },
+    { &quot;reagents&quot;: [&quot;KMnO4&quot;, &quot;H2O2&quot;], &quot;type&quot;: &quot;Oxidizer Conflict&quot;, &quot;severity&quot;: &quot;high&quot;,
+      &quot;description&quot;: &quot;KMnO4 acts as oxidizer; H2O2 as reductant — vigorous decomposition.&quot;,
+      &quot;action&quot;: &quot;Do not combine. Contact instructor immediately.&quot; }
+  ]
+}
+
+2.4  Feature 4 — Result Interpretation Engine
+Description
+After the final step, the student enters their calculated result (e.g. concentration of unknown acid). The engine computes % deviation from the theoretical value, diagnoses likely error sources based on the specific deviation pattern, and presents a structured learning output.
+
+Functional Requirements
+Final screen: &apos;Enter Your Result&apos; — numeric input field + unit label
+On submit: call POST /api/results/interpret
+Backend computes: % deviation = |student_result - theoretical| / theoretical * 100
+GPT-4o generates experiment-specific diagnosis using the session&apos;s vision readings and step history as context
+Example diagnosis logic in prompt: &apos;If deviation 8-12%: likely parallax error at meniscus. If deviation &gt; 15%: likely reagent contamination or concentration error. If negative deviation: endpoint overshot.&apos;
+Display result card with: student value, theoretical value, % deviation (green &lt;2%, amber 2-10%, red &gt;10%), diagnosis text, suggested improvement for next trial
+Instructor dashboard updates with student&apos;s result and deviation
+
+API Contract
+POST /api/results/interpret
+Request: {
+  &quot;session_id&quot;: &quot;uuid&quot;,
+  &quot;student_result&quot;: 0.094,
+  &quot;unit&quot;: &quot;mol/L&quot;,
+  &quot;theoretical_value&quot;: 0.1,
+  &quot;session_history&quot;: { &quot;steps_completed&quot;: 8, &quot;vision_readings&quot;: [...], &quot;safety_alerts&quot;: [] }
+}
+Response: {
+  &quot;deviation_percent&quot;: 6.0,
+  &quot;severity&quot;: &quot;amber&quot;,
+  &quot;diagnosis&quot;: &quot;6.0% deviation suggests a likely parallax error when reading the burette meniscus at step 4. Your vision check showed 24.6 mL vs expected 24.5 mL — the cumulative 0.1 mL offset over multiple readings compounds to this deviation.&quot;,
+  &quot;improvement&quot;: &quot;Always read the burette at eye level. Use a white card behind the burette to improve meniscus contrast.&quot;,
+  &quot;learning_point&quot;: &quot;Parallax error is systematic — it shifts all readings in the same direction. If your result is consistently low, check your reading angle.&quot;
+}
+
+2.5  Feature 5 — Instructor Dashboard
+Description
+A separate web view for the instructor (accessed via /dashboard) shows class-wide real-time progress for all active sessions. The instructor can see which step each student is on, any safety alerts triggered, vision check failures, and final result deviations.
+
+Functional Requirements
+Route: GET /dashboard — protected by a simple instructor passcode (hardcode: &apos;labmind2026&apos; for prototype)
+Shows a grid of student session cards, each with: session ID / student name, current step number out of total, status indicator (active/completed/safety alert), last vision check result
+Real-time updates via WebSocket (ws://localhost:8000/ws/dashboard) — server pushes step_complete, safety_alert, result_submitted events
+Safety alert cards highlighted in red with flashing badge
+Summary bar at top: total active sessions, average completion %, number of safety alerts today
+Clicking a student card expands to show full step history and all vision readings
+Export button: download CSV of all session results for the class
+
+
+3. System Architecture
+3.1  Architecture Overview
+LabMind follows a clean client-server architecture with an agentic orchestration layer. The Semantic Kernel orchestrator owns the state machine and agent loop. LangChain provides domain-specific tool implementations. FastAPI serves the REST and WebSocket API. The React PWA is the student-facing frontend.
+
+Tech Stack (Capgemini Official Stack Aligned)
+LLM + Vision: Azure OpenAI (GPT-4o)  |  Agent Orchestration: Semantic Kernel + LangChain  |  Backend: Python FastAPI  |  Frontend: React PWA (Tailwind CSS)  |  Observability: OpenTelemetry + Python logging  |  Testing: Golden dataset + pytest
+
+3.2  Component Architecture
+Component
+Technology
+Responsibility
+Student PWA
+React 18 + Vite + Tailwind CSS
+Mobile-first UI, camera capture, step navigation, offline queue via Service Worker
+Instructor Dashboard
+React 18 (same app, /dashboard route)
+Real-time class monitoring via WebSocket
+API Gateway
+FastAPI (Python 3.11)
+REST endpoints, WebSocket server, request validation, CORS
+Agent Orchestrator
+Semantic Kernel (Python SDK)
+State machine owner, step transitions, tool selection, retry logic
+Vision Tool
+LangChain + GPT-4o Vision API
+Burette reading, colour change detection, confidence scoring
+Protocol Parser Tool
+LangChain + GPT-4o
+PDF-to-state-machine conversion
+Safety Tool
+LangChain + reagent_safety.json
+Reagent conflict detection, severity classification
+Result Interpreter Tool
+LangChain + GPT-4o
+Deviation analysis, diagnosis generation, learning output
+Observability
+OpenTelemetry + Python logging
+Traces every agent decision, structured JSON logs
+Session Store
+In-memory dict (Python) / Redis optional
+Session state, step history, vision readings
+
+3.3  Data Flow Diagram (Text Representation)
+STUDENT PHONE (React PWA)
+  |-- [1] Upload PDF  --&gt;  POST /api/protocol/parse
+  |                          |-- Semantic Kernel orchestrator
+  |                          |-- LangChain Protocol Parser Tool
+  |                          |-- GPT-4o (text, structured JSON out)
+  |                          &lt;-- { steps[] state machine }
+  |
+  |-- [2] Per step: safety check  --&gt;  POST /api/safety/check
+  |                                      |-- LangChain Safety Tool
+  |                                      |-- reagent_safety.json lookup
+  |                                      &lt;-- { conflict?, severity, action }
+  |
+  |-- [3] Photo capture  --&gt;  POST /api/vision/check
+  |                            |-- LangChain Vision Tool
+  |                            |-- GPT-4o Vision (image + structured prompt)
+  |                            &lt;-- { reading, confidence, pass, message }
+  |
+  |-- [4] Final result  --&gt;  POST /api/results/interpret
+  |                           |-- LangChain Result Interpreter Tool
+  |                           |-- GPT-4o (session context + student value)
+  |                           &lt;-- { deviation_percent, diagnosis, learning_point }
+  |
+  |-- [5] Events  --&gt;  WebSocket ws://server/ws/dashboard
+                         &lt;-- INSTRUCTOR DASHBOARD (real-time push)
+
+3.4  Agentic Loop Detail (Semantic Kernel)
+The Semantic Kernel orchestrator manages a session state object and selects LangChain tools based on the current state. This is the core &apos;agentic&apos; behaviour described in the pitch deck:
+State: { session_id, experiment_name, steps[], current_step_index, session_history, status }
+On each student action, the orchestrator evaluates: what tool is needed? (parse / safety / vision / interpret)
+Tool selection is deterministic for the prototype (rule-based, not fully autonomous) — this is appropriate for a safety-critical domain
+Failure mode: if any tool call fails after 2 retries → orchestrator returns a step-by-step fallback instruction prompt to keep the student moving safely
+All tool invocations logged via OpenTelemetry spans with: tool_name, input_summary, output_summary, latency_ms, confidence score
+
+
+4. Complete File &amp; Folder Structure
+labmind/
+├── backend/
+│   ├── main.py                    # FastAPI app entry point
+│   ├── config.py                  # Settings (API keys from .env, CORS, etc.)
+│   ├── routers/
+│   │   ├── protocol.py            # POST /api/protocol/parse
+│   │   ├── vision.py              # POST /api/vision/check
+│   │   ├── safety.py              # POST /api/safety/check
+│   │   ├── results.py             # POST /api/results/interpret
+│   │   └── dashboard.py           # GET /dashboard data, WebSocket /ws/dashboard
+│   ├── agents/
+│   │   ├── orchestrator.py        # Semantic Kernel agent loop
+│   │   └── session_manager.py     # In-memory session store
+│   ├── tools/
+│   │   ├── protocol_parser.py     # LangChain tool: PDF -&gt; state machine
+│   │   ├── vision_tool.py         # LangChain tool: image -&gt; reading
+│   │   ├── safety_tool.py         # LangChain tool: reagent conflict check
+│   │   └── result_interpreter.py  # LangChain tool: deviation + diagnosis
+│   ├── data/
+│   │   ├── reagent_safety.json    # Hardcoded safety database (20+ pairs)
+│   │   └── sample_lab.pdf         # Sample titration lab for demo
+│   ├── observability/
+│   │   └── tracing.py             # OpenTelemetry setup
+│   ├── tests/
+│   │   ├── golden_dataset.json    # Test cases for each API endpoint
+│   │   └── test_all.py            # pytest tests covering all endpoints
+│   └── requirements.txt
+│
+├── frontend/
+│   ├── src/
+│   │   ├── main.jsx               # React app entry
+│   │   ├── App.jsx                # Router: / (student) and /dashboard
+│   │   ├── pages/
+│   │   │   ├── StudentApp.jsx     # Main student flow container
+│   │   │   └── InstructorDashboard.jsx
+│   │   ├── components/
+│   │   │   ├── UploadScreen.jsx   # PDF upload + session start
+│   │   │   ├── StepCard.jsx       # Step guidance card
+│   │   │   ├── PhotoCapture.jsx   # Camera / file picker + vision result
+│   │   │   ├── SafetyModal.jsx    # Full-screen safety alert modal
+│   │   │   ├── ResultCard.jsx     # Final result + diagnosis display
+│   │   │   ├── ProgressBar.jsx    # Step progress indicator
+│   │   │   └── StudentCard.jsx    # Dashboard: individual student card
+│   │   ├── hooks/
+│   │   │   ├── useSession.js      # Session state management
+│   │   │   └── useDashboardWS.js  # WebSocket hook for dashboard
+│   │   ├── api/
+│   │   │   └── labmind.js         # All fetch() calls to backend
+│   │   └── styles/
+│   │       └── index.css          # Tailwind + custom CSS variables
+│   ├── public/
+│   │   └── manifest.json          # PWA manifest
+│   ├── vite.config.js
+│   └── package.json
+│
+├── .env.example                   # Template for API keys
+├── docker-compose.yml             # Optional: spin up backend + frontend
+└── README.md                      # Setup and run instructions
+
+
+5. UI/UX Screen Specifications
+5.1  Student App — Screen Flow
+Screen
+Route
+Key Elements
+Transition
+Home / Upload
+/
+LabMind logo, tagline, PDF upload dropzone, &apos;Start Lab&apos; button, sample lab link
+After upload → Protocol Loading
+Protocol Loading
+/
+Spinner, &apos;Parsing your lab protocol...&apos; message, animated progress
+After parse → Step 1
+Step Card
+/lab/:sessionId
+Step number badge, title, instruction text, reagent chips, timer, safety flag banner, &apos;Complete &amp; Capture&apos; button
+After vision check passes → Next Step
+Photo Capture
+/lab/:sessionId/photo
+Camera viewfinder / file picker, &apos;Analyse Photo&apos; button, streaming result overlay (green/amber/red)
+Pass → Next step; Fail → Retry prompt
+Safety Alert Modal
+Overlay
+Full-screen red background, hazard icon, reagent names, conflict description, action required, &apos;I Acknowledge&apos; button
+After acknowledge → resume step
+Result Entry
+/lab/:sessionId/result
+Numeric input, unit label, &apos;Get Interpretation&apos; button
+After submit → Result Card
+Result Card
+/lab/:sessionId/result
+Student value, theoretical, deviation badge (colour-coded), diagnosis text, improvement tip, learning point, &apos;New Lab&apos; button
+Terminal state
+Instructor Dashboard
+/dashboard
+Passcode gate, session grid, summary bar, WebSocket live updates, export CSV button
+Ongoing, real-time
+
+5.2  Design System
+Color palette: Primary #1A3A5C (navy), Secondary #2B6CB0 (blue), Accent #38A169 (green), Warning #D69E2E (amber), Danger #E53E3E (red), Background #F7FAFC, Card #FFFFFF
+Typography: Inter (or system sans-serif) — heading 24-32px bold, body 14-16px, step number 64px bold
+Mobile-first: 375px base width, max-width 640px centered on desktop
+Cards: rounded-2xl, shadow-md, white background, 16-24px padding
+Buttons: full-width on mobile, rounded-xl, min height 52px for touch target
+Safety modal: fixed inset-0, z-50, bg-red-700, text-white, cannot be dismissed by clicking outside
+Step number: large circular badge (80px) with navy background, white text
+
+
+6. Backend Implementation Details
+6.1  FastAPI main.py Structure
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from routers import protocol, vision, safety, results, dashboard
+from observability.tracing import setup_telemetry
+
+app = FastAPI(title=&apos;LabMind API&apos;, version=&apos;1.0.0&apos;)
+app.add_middleware(CORSMiddleware, allow_origins=[&apos;*&apos;], allow_methods=[&apos;*&apos;], allow_headers=[&apos;*&apos;])
+setup_telemetry(app)
+app.include_router(protocol.router, prefix=&apos;/api/protocol&apos;)
+app.include_router(vision.router, prefix=&apos;/api/vision&apos;)
+app.include_router(safety.router, prefix=&apos;/api/safety&apos;)
+app.include_router(results.router, prefix=&apos;/api/results&apos;)
+app.include_router(dashboard.router)
+
+6.2  GPT-4o Vision Prompt (vision_tool.py)
+VISION_PROMPT = &apos;&apos;&apos;
+You are a chemistry lab assistant. Analyse the provided image of a laboratory burette.
+
+Task: Read the liquid level (meniscus) in the burette.
+
+Rules:
+- Read the BOTTOM of the meniscus for clear/light-coloured liquids
+- Read the TOP of the meniscus for dark liquids (e.g. KMnO4)
+- Burettes read top-to-bottom (0 at top, 50 at bottom)
+- Report to 2 decimal places
+
+Respond ONLY with valid JSON (no markdown):
+{ &quot;reading&quot;: &lt;float&gt;, &quot;confidence&quot;: &lt;float 0-1&gt;, &quot;notes&quot;: &quot;&lt;string&gt;&quot; }
+
+If no burette is visible, return: { &quot;reading&quot;: null, &quot;confidence&quot;: 0, &quot;notes&quot;: &quot;No burette detected&quot; }
+&apos;&apos;&apos;
+
+6.3  Protocol Parser Prompt
+PROTOCOL_PARSE_PROMPT = &apos;&apos;&apos;
+You are a chemistry lab protocol parser. Given the following lab manual text, extract
+a structured step-by-step protocol as JSON.
+
+For each step, extract:
+- step_number (int)
+- title (string, max 8 words)
+- instructions (list of strings, each a single action)
+- reagents (list of {name, concentration, volume_ml} — omit unknown fields)
+- duration_seconds (int or null)
+- safety_flags (list of strings — any safety concerns mentioned)
+- science_explanation (1-2 sentences explaining the chemistry of this step)
+- expected_observation (string — what the student should see)
+- vision_check_required (bool — true if a burette/colour change reading is needed)
+- vision_expected (object or null)
+
+Respond ONLY with valid JSON: { &quot;experiment_name&quot;: &quot;...&quot;, &quot;steps&quot;: [...] }
+&apos;&apos;&apos;
+
+6.4  WebSocket Dashboard Implementation
+# backend/routers/dashboard.py
+from fastapi import WebSocket, WebSocketDisconnect
+from agents.session_manager import session_store
+
+active_connections: list[WebSocket] = []
+
+async def broadcast(event: dict):
+    for ws in active_connections:
+        await ws.send_json(event)
+
+@router.websocket(&apos;/ws/dashboard&apos;)
+async def dashboard_ws(websocket: WebSocket):
+    await websocket.accept()
+    active_connections.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # keep alive
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
+
+6.5  requirements.txt
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9
+openai==1.35.0
+semantic-kernel==1.1.1
+langchain==0.2.6
+langchain-openai==0.1.14
+pypdf==4.2.0
+python-dotenv==1.0.1
+opentelemetry-api==1.25.0
+opentelemetry-sdk==1.25.0
+opentelemetry-instrumentation-fastapi==0.46b0
+pydantic==2.7.4
+websockets==12.0
+pytest==8.2.2
+httpx==0.27.0
+
+
+7. Frontend Implementation Details
+7.1  package.json Dependencies
+&quot;dependencies&quot;: {
+  &quot;react&quot;: &quot;^18.3.1&quot;,
+  &quot;react-dom&quot;: &quot;^18.3.1&quot;,
+  &quot;react-router-dom&quot;: &quot;^6.24.0&quot;,
+  &quot;axios&quot;: &quot;^1.7.2&quot;,
+  &quot;lucide-react&quot;: &quot;^0.400.0&quot;,
+  &quot;framer-motion&quot;: &quot;^11.2.12&quot;
+},
+&quot;devDependencies&quot;: {
+  &quot;@vitejs/plugin-react&quot;: &quot;^4.3.1&quot;,
+  &quot;autoprefixer&quot;: &quot;^10.4.19&quot;,
+  &quot;postcss&quot;: &quot;^8.4.38&quot;,
+  &quot;tailwindcss&quot;: &quot;^3.4.4&quot;,
+  &quot;vite&quot;: &quot;^5.3.1&quot;
+}
+
+7.2  Key Component: StepCard.jsx Behaviour
+Props: step (object), sessionId, onStepComplete(visionResult), onSafetyAlert(alert)
+On mount: call POST /api/safety/check with step.reagents + session history
+If safety conflict → fire onSafetyAlert, block &apos;Complete&apos; button until parent clears alert
+Show step.science_explanation in an expandable &apos;Why?&apos; section (collapsed by default)
+Timer: if step.duration_seconds, show countdown timer that starts automatically
+&apos;Complete &amp; Capture Photo&apos; button → navigate to /lab/:sessionId/photo with step context
+
+7.3  PWA Service Worker (Offline Support)
+Use vite-plugin-pwa or a custom service worker
+Cache: all static assets, the React bundle, and the reagent_safety.json
+Offline queue: if network unavailable when student submits a photo, queue the request in IndexedDB and retry on reconnect
+Show &apos;Offline Mode — results will sync when connected&apos; banner when navigator.onLine === false
+
+
+8. Environment &amp; Configuration
+8.1  .env.example
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your_key_here
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
+AZURE_OPENAI_API_VERSION=2024-02-01
+
+# OR standard OpenAI (for local dev without Azure)
+OPENAI_API_KEY=sk-...
+
+# App settings
+INSTRUCTOR_PASSCODE=labmind2026
+SESSION_TTL_HOURS=4
+LOG_LEVEL=INFO
+
+8.2  Setup &amp; Run Commands
+# Backend
+cd backend
+pip install -r requirements.txt
+cp ../.env.example .env  # fill in API keys
+uvicorn main:app --reload --port 8000
+
+# Frontend (new terminal)
+cd frontend
+npm install
+npm run dev  # runs on http://localhost:5173
+
+# Run tests
+cd backend &amp;&amp; pytest tests/ -v
+
+
+9. Sample Lab PDF &amp; Demo Data
+9.1  sample_lab.pdf Content (Backend Must Generate This)
+The backend should include a sample titration protocol PDF so the prototype works out-of-the-box without the student needing to upload their own PDF. Create a PDF or use the hardcoded text below as a fallback when no PDF is uploaded:
+
+Step #
+Title
+Key Action
+Vision Check?
+Safety?
+1
+Prepare Burette
+Rinse burette with distilled water; fill with 0.1M NaOH to 0.00 mL mark
+Yes (read 0.00 mL)
+No
+2
+Prepare Conical Flask
+Pipette 25.0 mL of HCl (unknown conc.) into flask; add 3 drops phenolphthalein
+No
+Yes (HCl handling)
+3
+Initial Burette Reading
+Record initial burette reading before titration begins
+Yes (read start)
+No
+4
+Titrate to Endpoint
+Add NaOH dropwise while swirling; stop at first permanent pink colour
+Yes (colour change)
+Yes (NaOH + HCl)
+5
+Final Burette Reading
+Record final burette reading; calculate volume of NaOH used
+Yes (read final)
+No
+6
+Calculate Concentration
+Use n(NaOH) = C*V; n(HCl) = n(NaOH); C(HCl) = n/0.025
+No
+No
+7
+Repeat Titration
+Perform 2 more titrations; use mean of concordant results (within 0.1 mL)
+Yes (each reading)
+No
+8
+Record Results
+Enter your calculated mean HCl concentration
+No
+No
+
+9.2  Demo Mode (No API Key Required)
+IMPORTANT: The prototype must work in demo mode for the jury presentation, even if the Azure OpenAI key is unavailable. Implement a DEMO_MODE=true env flag that:
+Returns hardcoded parsed protocol (the titration steps above) for any PDF upload
+Returns a mocked vision result: { reading: 24.6, confidence: 0.91, pass: true, message: &apos;Burette reads 24.60 mL — within tolerance&apos; }
+Returns a mocked result interpretation with the deviation analysis for 6% error
+All mock responses should be realistic and match what the real API would return
+Demo mode indicator: small &apos;DEMO MODE&apos; badge in the top-right corner of the app
+
+
+10. Testing Specification
+10.1  Golden Dataset (tests/golden_dataset.json)
+The golden dataset must cover:
+Test Case
+Input
+Expected Output
+Pass Condition
+Vision: clear burette at 24.5mL
+Photo of burette at 24.5 mL mark
+reading: 24.5, confidence &gt;= 0.8, pass: true
+reading within ±0.1 of 24.5
+Vision: low confidence
+Blurry/dark image
+confidence &lt; 0.75, pass: false
+Re-photograph prompt shown
+Safety: HCl + NaOH
+reagents: [HCl, NaOH]
+conflict: true, severity: medium
+Safety modal displayed
+Safety: no conflict
+reagents: [NaOH, phenolphthalein]
+conflict: false
+No modal, step proceeds
+Result: 6% deviation
+student: 0.094, theoretical: 0.1
+deviation_percent: 6.0, severity: amber
+Parallax error diagnosis
+Result: &lt;2% deviation
+student: 0.099, theoretical: 0.1
+deviation_percent: 1.0, severity: green
+Positive result message
+Protocol parse: titration PDF
+Sample titration text
+8 steps extracted correctly
+All 8 steps present, correct order
+
+
+11. Jury Impression Checklist
+⭐  What the Jury Will Look For — Make Sure ALL of These Work
+The Capgemini Agentify Buildathon judges are looking for: agentic behaviour, use of the official tech stack, real-world problem solving, safety awareness, and production-quality thinking.
+
+Criterion
+What to Show
+Implementation Check
+Agentic behaviour
+SK orchestrator selects tools, handles retries, cross-step reasoning
+Visible in OpenTelemetry trace log panel on dashboard
+GPT-4o Vision
+Live photo of burette → AI reads the value
+Works in demo mode with a test image
+Safety-first design
+Reagent conflict triggers immediate full-screen alert
+Demo: add HCl step after NaOH step
+Instructor dashboard
+Real-time step progress appears without page refresh
+WebSocket events visible in browser DevTools
+Mobile-first PWA
+App opens perfectly on a phone browser
+Test on actual phone before presentation
+Official stack
+Azure OpenAI, Semantic Kernel, LangChain all visible in code
+Show code briefly if asked
+Error handling
+Failed vision check → helpful retry prompt, not crash
+Demo with a blurry image
+Learning output
+Result interpretation names the specific error type
+Demo with 6% deviation input
+Observability
+OpenTelemetry traces show agent decisions
+Dashboard shows trace log panel
+Offline capable
+App still functions with no network (demo mode)
+Toggle airplane mode, show UI still works
+
+
+12. Claude Code Instructions
+📋  Instructions for Claude Code
+You are building a complete, jury-ready prototype of LabMind based on this specification. Follow the folder structure in Section 4 exactly. Implement all 5 features in Sections 2.1-2.5. Implement demo mode as described in Section 9.2 so the app works without API keys. Use the exact tech stack in Section 3. Include at minimum 3 working screens in the React PWA: the upload/home screen, a step card screen with photo capture UI, and the result interpretation screen. The instructor dashboard must be accessible at /dashboard and show at least mock session data if no live sessions exist. Write meaningful README.md with setup instructions.
+
+12.1  Priority Build Order
+Step 1: Set up FastAPI backend with all 4 routers returning demo/mock data
+Step 2: Set up React PWA with React Router — three main screens working with mock data
+Step 3: Implement the real GPT-4o calls (protocol parse + vision check)
+Step 4: Implement safety tool with reagent_safety.json database
+Step 5: Implement result interpreter with deviation analysis
+Step 6: Implement WebSocket and instructor dashboard
+Step 7: Add OpenTelemetry tracing and demo mode toggle
+Step 8: Polish mobile UI, test on phone, write README
+
+12.2  Do Not Over-Engineer
+This is a prototype for a hackathon. Acceptable shortcuts:
+In-memory session store is fine (no database needed)
+No authentication for students (session ID from URL is sufficient)
+Instructor passcode hardcoded in .env is fine
+No file storage needed — photos are processed and discarded
+No persistent data between server restarts
+Single-server deployment (no need for Redis, Celery, etc.)
+
+LabMind  ·  Team BitX  ·  Capgemini Exceller Agentify Buildathon 2026
+Build Specification v1.0  ·  Generated for Claude Code

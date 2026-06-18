@@ -1,0 +1,146 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── NextAuth models ─────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          String    @default("student") // "instructor" | "student"
+  accounts      Account[]
+  sessions      Session[]
+  labSessions   LabSession[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+// ─── Lab models ───────────────────────────────────────────────────────
+
+model LabSession {
+  id               String              @id
+  studentName      String              @default("Student")
+  experimentId     String
+  experimentName   String
+  currentStep      Int                 @default(1)
+  totalSteps       Int
+  status           String              @default("active")
+  reagentHistory   Json                @default("[]")
+  lastVisionPass   Boolean?
+  deviationPercent Float?
+  safetyAlertCount Int                 @default(0)
+  steps            Json                @default("[]")
+  safetyLog        Json                @default("[]")
+  notes            Json                @default("[]")
+  instructorCode   String?
+  instructor       InstructorSession?  @relation(fields: [instructorCode], references: [code])
+  verifications    VerificationEntry[]
+  userId           String?
+  user             User?               @relation(fields: [userId], references: [id])
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model InstructorSession {
+  code           String       @id
+  sessionName    String
+  experimentId   String
+  experimentName String
+  batch          String       @default("")
+  department     String       @default("")
+  date           String
+  notes          Json         @default("{}")
+  students       LabSession[]
+  createdAt      DateTime     @default(now())
+}
+
+model VerificationEntry {
+  id                String     @id @default(cuid())
+  sessionId         String
+  session           LabSession @relation(fields: [sessionId], references: [id])
+  studentName       String
+  stepNumber        Int
+  imageBase64       String     @db.Text
+  aiReading         Float?
+  aiConfidence      Float
+  aiMessage         String?
+  status            String     @default("pending")
+  instructorComment String?
+  submittedAt       DateTime   @default(now())
+  resolvedAt        DateTime?
+}
+
+model AgentDecision {
+  id        String   @id @default(cuid())
+  sessionId String
+  trigger   String
+  plan      String   @db.Text
+  tools     Json     @default("[]")
+  outcome   String   @db.Text
+  provider  String
+  latencyMs Int
+  createdAt DateTime @default(now())
+}
+
+model AppSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model TraceSpan {
+  id            String   @id @default(cuid())
+  toolName      String
+  inputSummary  String
+  outputSummary String
+  latencyMs     Int
+  confidence    Float?
+  createdAt     DateTime @default(now())
+}

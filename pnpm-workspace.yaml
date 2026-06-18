@@ -1,0 +1,10 @@
+# Single-package repo — this file only carries pnpm settings (no sub-packages).
+# sharp is Next.js' optional image optimizer; we don't use next/image, so we
+# explicitly decline its native build. Making the choice explicit means
+# `pnpm install` exits 0 on Vercel and locally instead of pausing for approval.
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: false
+  prisma: true
+  sharp: false

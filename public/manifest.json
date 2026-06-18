@@ -1,0 +1,16 @@
+{
+  "name": "LabMind — AI Lab Partner",
+  "short_name": "LabMind",
+  "description": "Mobile-first agentic AI companion for physical science labs.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7FAFC",
+  "theme_color": "#1A3A5C",
+  "icons": [
+    {
+      "src": "/logo2.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,218 @@
+=== ppt/slides/slide1.xml ===
+LabMind
+AI Lab Partner
+"The AI that watches your experiment
+and stops your mistake before you make it"
+Team BitX
+TEAM MEMBERS
+01
+Disha Singh Singraur
+B.Tech · CSE · 3rd Year
+Team Lead / AI Architect
+02
+Diva Pandey
+B.Tech · CSE · 3rd Year
+Backend Developer
+03
+Harshit Makraria
+B.Tech · CSE · 3rd Year
+Gen AI Developer
+04
+Disha Parmar
+B.Tech · CSE · 3rd Year
+Frontend Developer
+05
+Saloni Ahirwar
+B.Tech · CSE · 3rd Year
+UI/UX Designer
+ 
+Team BitX  ·  LabMind  ·  Capgemini Exceller Agentify Buildathon
+B.Tech
+ · Computer Science &amp; Engineering
+Capgemini Exceller · Agentify Buildathon 2026
+=== ppt/slides/slide2.xml ===
+02 / 05  ·  BUSINESS CHALLENGE
+The Lab Crisis in STEM Education
+A structural gap: students are overwhelmingly unsupervised during critical lab hours — and no AI agent addresses real physical labs.
+Instructor Overload
+1 TA per 25–35 students. Most questions go unanswered during the critical lab hour.
+Compounding Errors
+A missed step silently invalidates all downstream readings — often undetected.
+Undetected Safety Risks
+Reagent conflicts &amp; wrong concentrations go unnoticed until damage occurs.
+Lost Learning Outcome
+Students record 'human error' with no analysis — the lesson is never learned.
+1 : 30+
+TA-to-Student
+ 
+ratio
+(
+university
+ labs)
+~60%
+Lab time lost to errors &amp;
+confusion (PNAS, 2019)
+Zero
+Specialised AI agents for
+live physical lab guidance today
+WHERE LAB TIME GOES  (PNAS 2019 + team instructor survey, n=4)
+VALIDATION
+18 students &amp; 4 instructors surveyed by the team prior to building: 
+83% said they had no reliable source of help mid-experiment.
+PNAS 2019 (Freeman et al.) confirms active-learning gaps; 1:30+ TA ratios are university-wide standard (AAAS 2011 Vision &amp; Change report).
+WHY NOW
+GPT-4o multimodal Vision (Apr 2024) is the first model capable of reliably reading lab setups from photos at production quality.
+We tested it on 12 titration photos — 
+reading accuracy: 91% within ±0.1 mL.
+ This use case was not viable before 2024.
+Team BitX  ·  LabMind  ·  Capgemini Exceller Agentify Buildathon
+=== ppt/slides/slide3.xml ===
+03 / 05  ·  PROPOSED SOLUTION
+LabMind — AI That Watches Your Experiment
+Mobile-first agentic AI for physical labs — not a simulation. Phase 1: acid-base titration. Safety alerts are advisory; LabMind augments, never replaces, instructor oversight.
+✓ Guides Procedure
+✓ Checks Inputs
+✓ Explains Results
+✓ Interactive Q&amp;A
+✓ Agentic Architecture
+01
+Protocol Ingestion &amp; Step Guidance
+› 
+Upload lab PDF — Azure OpenAI parses into ordered state machine
+› 
+Each step shows reagents, timing, safety flags &amp; underlying science. Photo capture is student-initiated at step completion — one tap, gloves off not required.
+› 
+Safety override: reagent conflict triggers immediate alert, halts progress until resolved
+02
+Visual Check &amp; Error Detection
+› 
+GPT-4o Vision reads burettes, gel bands, colour change — cross-checked against expected endpoint.
+› 
+Cross-step reasoning: 'Step 4 skipped → Step 7 results unreliable'
+› 
+Low confidence → re-prompt before proceeding. Streaming response keeps latency under 3 s perceived wait.
+03
+Result Interpretation Engine
+› 
+Compares raw result to theoretical with % deviation analysis.
+› 
+Experiment-specific diagnosis: '10.6% deviation → likely parallax error at meniscus'
+› 
+Instructor dashboard shows class-wide step progress in real time. Structured learning scaffold, not just a number.
+AGENT DECISION FLOW—SK orchestrates state; LangChain provides domain-specific tools (reagent lookup, safety DB, PDF parser)
+Upload PDF
+→
+Parse Protocol
+→
+Step Prompt
+→
+Photo → Vision
+→
+Confidence OK?
+→
+↓ No: re-photo
+Diagnose Result
+→
+Learning Output
+Team BitX  ·  LabMind  ·  Capgemini Exceller Agentify Buildathon
+=== ppt/slides/slide4.xml ===
+04 / 05  ·  INNOVATION STORY
+What Makes LabMind Different
+Three pillars compared to the real baseline. Vernier &amp; Pasco offer sensor data logging — LabMind adds AI reasoning on top of the physical observation, which they do not.
+Computer Vision
+Multimodal Photo Verification
+GPT-4o Vision reads actual burettes, gel bands, flasks and corrects readings. Accuracy verified on prototype titration images. Vernier/Pasco log sensor data only — no visual AI reasoning. No competitor does this for physical labs.
+Low confidence → re-photograph prompt before proceeding. Accuracy tested on 12 titration setups (team prototype testing).
+Agentic Loop
+Agentic State Loop
+Semantic Kernel owns the state machine &amp; orchestration. LangChain provides domain tools: reagent lookup, safety DB, PDF parser. Each does one job. Agent warns students before irreversible steps.
+Failure mode: if reasoning stalls → graceful step-by-step fallback prompt keeps the student moving safely.
+Real-World AI
+Physical Lab, Not Simulation
+Labster/PhET: excellent virtual simulations — but students still go to real labs. Vernier/Pasco: sensor logging, no AI guidance. LabMind targets the physical session every student attends, with no new hardware needed.
+Data privacy: photos are ephemeral (not stored beyond the session). FERPA/GDPR-aligned. Instructor dashboard shows class-wide progress.
+Feature
+LabMind
+No Tool
+Labster / PhET
+Vernier / Pasco
+Real physical lab support
+✔ Full
+✖ Student alone
+✖ Simulation only
+Sensor only
+Safety error detection
+✔ Active
+✖ Undetected
+✖ None
+No alerts
+Photo / vision input
+✔ Full
+✖ None
+✖ None
+No
+Experiment-specific result
+✔ Full
+✖ Generic notes
+Limited
+Limited
+Offline capability
+✔ PWA
+✖ None
+✖ None
+No
+Team BitX  ·  LabMind  ·  Capgemini Exceller Agentify Buildathon
+=== ppt/slides/slide5.xml ===
+05 / 05  ·  EXECUTION APPROACH
+How We Build &amp; Why We're Ready
+TECH STACK  —  OFFICIAL CAPGEMINI STACK ALIGNED
+LLM + Vision
+Azure OpenAI (GPT-4o)
+→  reads real lab photos · secrets via dotenv / Key Vault
+Agent Loop
+Semantic Kernel + LangChain
+→  autonomous tool selection · agentic step reasoning
+Backend
+Python FastAPI
+→  stateless, scalable REST API · clean separation
+Observability
+OpenTelemetry + Logging
+→  traces every agent decision · production-ready debugging
+Evaluation
+Golden Dataset + Prompt Tests
+→  verified lab scenarios · prevents regression
+Frontend
+React PWA
+→  offline-capable · mobile-first · no app install needed
+ARCHITECTURE FLOW
+Student Phone (PWA)
+↓
+Azure OpenAI
+GPT-4o Vision
+↓
+Semantic Kernel
+Orchestrator
+↓
+FastAPI Backend
+↓
+React PWA (offline)
+LangChain Tools
+↔
+OpenTelemetry
+Observability
+↔
+Golden Dataset
+Evaluation
+↔
+🔒 PDFs &amp; photos processed ephemerally — never stored.     📶 PWA queues offline; syncs on reconnect.     📊 OpenTelemetry traces every agent decision step.
+Team BitX  ·  LabMind  ·  Capgemini Exceller Agentify Buildathon
+=== ppt/notesSlides/notesSlide1.xml (notes) ===
+1
+=== ppt/notesSlides/notesSlide2.xml (notes) ===
+2
+=== ppt/notesSlides/notesSlide3.xml (notes) ===
+3
+=== ppt/notesSlides/notesSlide4.xml (notes) ===
+4
+=== ppt/notesSlides/notesSlide5.xml (notes) ===
+5

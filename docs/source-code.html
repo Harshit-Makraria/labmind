@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LabMind — Complete Source Code</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #1a1a2e; background: #fff; line-height: 1.5; }
+
+  /* ── Cover ── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at top left, rgba(43, 108, 176, 0.12), transparent 32%),
+      radial-gradient(circle at 85% 20%, rgba(47, 158, 111, 0.12), transparent 30%),
+      linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+    color: #0f2942;
+    padding: 56px 40px;
+    page-break-after: always;
+  }
+  .cover::before,
+  .cover::after {
+    content: "";
+    position: absolute;
+    border-radius: 999px;
+    pointer-events: none;
+  }
+  .cover::before {
+    width: 420px;
+    height: 420px;
+    right: -120px;
+    bottom: -160px;
+    background: rgba(43, 108, 176, 0.08);
+  }
+  .cover::after {
+    width: 320px;
+    height: 320px;
+    left: -110px;
+    top: -120px;
+    background: rgba(15, 41, 66, 0.03);
+  }
+  .cover-panel {
+    position: relative;
+    z-index: 1;
+    width: min(980px, 100%);
+    padding: 42px 38px 34px;
+    border: 1px solid rgba(15, 41, 66, 0.08);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 24px 80px rgba(15, 41, 66, 0.12);
+    backdrop-filter: blur(14px);
+  }
+  .cover-brand { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .cover-logo {
+    width: 92px;
+    height: 92px;
+    padding: 10px;
+    background: #ffffff;
+    border: 1px solid rgba(15, 41, 66, 0.08);
+    border-radius: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 12px 30px rgba(15, 41, 66, 0.12);
+  }
+  .cover-logo img { width: 100%; height: 100%; object-fit: contain; border-radius: 20px; display: block; }
+  .cover-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(43, 108, 176, 0.14);
+    background: rgba(43, 108, 176, 0.08);
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #1c4f86;
+  }
+  .cover h1 { font-size: 56px; font-weight: 900; letter-spacing: -2px; line-height: 0.96; margin-top: 2px; color: #0f2942; }
+  .cover .sub { max-width: 760px; font-size: 19px; color: #5b6b7d; margin-top: 12px; margin-bottom: 0; }
+  .cover-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 24px; }
+  .cover .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.8);
+    border: 1px solid rgba(15, 41, 66, 0.08);
+    border-radius: 999px;
+    padding: 7px 15px;
+    font-size: 12px;
+    color: #0f2942;
+    margin: 0;
+  }
+  .cover-grid {
+    margin-top: 28px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    text-align: left;
+  }
+  .cover-card {
+    padding: 18px 18px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(15, 41, 66, 0.08);
+    background: #ffffff;
+  }
+  .cover-card strong { display: block; margin-bottom: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #5b6b7d; }
+  .cover-card .value { font-size: 15px; line-height: 1.45; word-break: break-word; color: #0f2942; }
+  .cover-card.accent { background: linear-gradient(135deg, rgba(47,158,111,0.08), rgba(27,84,139,0.06)); }
+  .cover-meta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 26px;
+    font-size: 12px;
+    color: #5b6b7d;
+  }
+  .cover-meta span {
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 41, 66, 0.08);
+    background: rgba(255,255,255,0.9);
+    margin: 0;
+  }
+  .cover .repo { margin-top: 40px; background: rgba(47,158,111,0.2); border: 1px solid rgba(47,158,111,0.4); border-radius: 12px; padding: 16px 28px; font-size: 14px; color: #2f9e6f; word-break: break-all; }
+  .cover .repo strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #5b6b7d; margin-bottom: 4px; }
+  .cover .meta { margin-top: 32px; font-size: 12px; color: #5b6b7d; }
+  .cover .meta span { margin: 0 12px; }
+
+  /* ── TOC ── */
+  .toc-page { padding: 60px 60px; page-break-after: always; }
+  .toc-page h2 { font-size: 28px; font-weight: 800; color: #0f2942; margin-bottom: 32px; border-bottom: 3px solid #2b6cb0; padding-bottom: 8px; }
+  .toc-section { margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
+  .toc-section .num { color: #2b6cb0; font-weight: 700; font-size: 12px; min-width: 24px; }
+  .toc-section .title { font-size: 13px; font-weight: 600; color: #0f2942; }
+  .toc-section .dots { flex: 1; border-bottom: 1px dotted #ccc; margin: 0 4px 3px; }
+  .toc-group { margin-top: 16px; margin-bottom: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #5b6b7d; font-weight: 700; }
+
+  /* ── Section headers ── */
+  .section-header { padding: 48px 60px 24px; page-break-before: always; }
+  .section-header .num { font-size: 13px; font-weight: 700; color: #2b6cb0; text-transform: uppercase; letter-spacing: 2px; }
+  .section-header h2 { font-size: 32px; font-weight: 900; color: #0f2942; margin-top: 4px; }
+  .section-header .desc { font-size: 13px; color: #5b6b7d; margin-top: 8px; max-width: 600px; }
+
+  /* ── Architecture ── */
+  .arch-page { padding: 0 60px 40px; }
+  .arch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .arch-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+  .arch-card h4 { font-size: 12px; font-weight: 700; color: #2b6cb0; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .arch-card ul { padding-left: 16px; }
+  .arch-card li { font-size: 11px; color: #4a5568; margin-bottom: 3px; }
+  .stack-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .stack-chip { background: #0f2942; color: white; border-radius: 6px; padding: 4px 10px; font-size: 10px; font-weight: 600; }
+  .stack-chip.green { background: #2f9e6f; }
+  .stack-chip.blue { background: #2b6cb0; }
+  .stack-chip.purple { background: #6b46c1; }
+  .stack-chip.gray { background: #5b6b7d; }
+  .flow-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  .flow-box { background: #2b6cb0; color: white; border-radius: 8px; padding: 6px 14px; font-size: 11px; font-weight: 600; text-align: center; }
+  .flow-box.green { background: #2f9e6f; }
+  .flow-box.dark { background: #0f2942; }
+  .flow-arrow { color: #aaa; font-size: 16px; }
+  table.arch-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 11px; }
+  table.arch-table th { background: #0f2942; color: white; padding: 8px 10px; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  table.arch-table td { padding: 7px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  table.arch-table tr:nth-child(even) td { background: #f8fafc; }
+
+  /* ── Code blocks ── */
+  .file-block { margin: 0 0 0; page-break-inside: avoid; }
+  .file-header { background: #1e293b; color: #94a3b8; font-family: 'Consolas', 'Courier New', monospace; font-size: 10px; padding: 8px 14px; display: flex; align-items: center; gap: 8px; margin: 24px 60px 0; border-radius: 8px 8px 0 0; }
+  .file-header .path { color: #7dd3fc; font-weight: 600; }
+  .file-header .lang { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 1px 6px; }
+  pre { background: #0f172a; color: #e2e8f0; font-family: 'Consolas', 'Courier New', monospace; font-size: 9.5px; line-height: 1.6; padding: 16px 14px; margin: 0 60px 0; overflow-x: auto; border-radius: 0 0 8px 8px; white-space: pre-wrap; word-break: break-word; }
+  .comment { color: #64748b; }
+  .kw { color: #93c5fd; }
+  .str { color: #86efac; }
+  .fn { color: #fde68a; }
+  .type { color: #f9a8d4; }
+  .num-lit { color: #fb923c; }
+  .punct { color: #94a3b8; }
+
+  /* ── Footer ── */
+  @page { margin: 0; }
+  @media print {
+    body { font-size: 10px; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .cover-logo, .arch-card, .stack-chip, .flow-box, .file-header, pre,
+    table.arch-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section-header { page-break-before: always; }
+    pre { font-size: 8.5px; }
+    .file-header { margin: 16px 40px 0; }
+    pre { margin: 0 40px 0; }
+    .arch-page, .toc-page, .section-header { padding-left: 40px; padding-right: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     COVER PAGE
+════════════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-panel">
+    <div class="cover-brand">
+      <div class="cover-logo"><img src="../public/logo2.png" alt="LabMind logo" /></div>
+      <div class="cover-kicker">LabMind source export</div>
+      <h1>Agentic AI Lab Partner</h1>
+      <p class="sub">A polished full-source snapshot of the Next.js app, with the live deployment now shown on the custom domain.</p>
+    </div>
+
+    <div class="cover-row">
+      <span class="badge">Capgemini Exceller Agentify Buildathon 2026</span>
+      <span class="badge">Team BitX</span>
+      <span class="badge">Next.js 15 App Router</span>
+      <span class="badge">Prisma + Supabase</span>
+    </div>
+
+    <div class="cover-grid">
+      <div class="cover-card">
+        <strong>Repository</strong>
+        <div class="value">https://github.com/Harshit-Makraria/labmind</div>
+      </div>
+      <div class="cover-card accent">
+        <strong>Live Demo</strong>
+        <div class="value">https://labmind-bitx.vercel.app/</div>
+      </div>
+    </div>
+
+    <div class="cover-meta">
+      <span>Hono API</span>
+      <span>NextAuth v5</span>
+      <span>OpenAI / Gemini</span>
+      <span>Submitted: June 2026</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     TABLE OF CONTENTS
+════════════════════════════════════════════════════════════════════ -->
+<div class="toc-page">
+  <h2>Table of Contents</h2>
+
+  <div class="toc-group">Architecture &amp; Design</div>
+  <div class="toc-section"><span class="num">1</span><span class="title">System Architecture Overview</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">2</span><span class="title">Technology Stack</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">3</span><span class="title">Database Schema (Prisma)</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">4</span><span class="title">Shared Types</span><span class="dots"></span></div>
+
+  <div class="toc-group">Backend — Core</div>
+  <div class="toc-section"><span class="num">5</span><span class="title">LLM Config &amp; Provider Selection</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">6</span><span class="title">LLM Provider Waterfall</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">7</span><span class="title">Provider Exhaustion State</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">8</span><span class="title">Runtime Config (DB-backed)</span><span class="dots"></span></div>
+
+  <div class="toc-group">Backend — Agent</div>
+  <div class="toc-section"><span class="num">9</span><span class="title">Agent Orchestrator</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">10</span><span class="title">Agent Tool Registry (10 tools)</span><span class="dots"></span></div>
+
+  <div class="toc-group">Backend — Tools &amp; Store</div>
+  <div class="toc-section"><span class="num">11</span><span class="title">Safety Engine</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">12</span><span class="title">Vision Check Tool</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">13</span><span class="title">Protocol Parser</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">14</span><span class="title">Result Interpreter</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">15</span><span class="title">Summary &amp; Report Builder</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">16</span><span class="title">Session Store (write-through cache)</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">17</span><span class="title">Instructor Code Store</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">18</span><span class="title">Experiment Registry</span><span class="dots"></span></div>
+
+  <div class="toc-group">API</div>
+  <div class="toc-section"><span class="num">19</span><span class="title">Hono Catch-all API Router</span><span class="dots"></span></div>
+
+  <div class="toc-group">Authentication</div>
+  <div class="toc-section"><span class="num">20</span><span class="title">NextAuth v5 Config (Edge + Node)</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">21</span><span class="title">Middleware</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">22</span><span class="title">Signup API</span><span class="dots"></span></div>
+
+  <div class="toc-group">Frontend</div>
+  <div class="toc-section"><span class="num">23</span><span class="title">Landing Page</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">24</span><span class="title">App Shell (Sidebar + Topbar)</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">25</span><span class="title">Demo Banner Component</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">26</span><span class="title">AI Settings Page</span><span class="dots"></span></div>
+  <div class="toc-section"><span class="num">27</span><span class="title">Lab Session Page</span><span class="dots"></span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTION 1 — ARCHITECTURE
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Section 1 &amp; 2</div>
+  <h2>Architecture &amp; Technology Stack</h2>
+  <p class="desc">LabMind is a single Next.js monorepo. The frontend and backend share types and run in the same deployment — zero additional servers needed.</p>
+</div>
+
+<div class="arch-page">
+
+  <h3 style="font-size:14px; font-weight:700; color:#0f2942; margin-bottom:12px;">Request Flow</h3>
+  <div class="flow-row">
+    <div class="flow-box">Browser (React)</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box">Next.js Middleware<br><small>(NextAuth Edge)</small></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box green">Hono Router<br><small>/api/[[...route]]</small></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box dark">Agent Orchestrator</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box green">OpenAI / Gemini<br><small>(auto waterfall)</small></div>
+  </div>
+  <div class="flow-row" style="margin-top:4px;">
+    <div class="flow-box dark" style="background:#6b46c1;">Prisma ORM</div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-box" style="background:#0d9488;">Supabase PostgreSQL</div>
+    <span style="margin-left:20px; color:#5b6b7d; font-size:11px;">(pgbouncer port 6543 for queries · direct port 5432 for migrations)</span>
+  </div>
+
+  <h3 style="font-size:14px; font-weight:700; color:#0f2942; margin:20px 0 12px;">Technology Stack</h3>
+  <div class="arch-grid">
+    <div class="arch-card">
+      <h4>Frontend</h4>
+      <ul>
+        <li><strong>Next.js 15</strong> — App Router, RSC, SSE streaming</li>
+        <li><strong>React 19</strong> — client components, hooks</li>
+        <li><strong>TanStack Query v5</strong> — server state, cache invalidation</li>
+        <li><strong>Tailwind CSS 4</strong> — utility styling, CSS variables</li>
+        <li><strong>Framer Motion</strong> — hero animation</li>
+        <li><strong>Lucide Icons</strong> — consistent icon set</li>
+        <li><strong>Sonner</strong> — toast notifications</li>
+        <li><strong>next-auth/react</strong> — session hooks</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <h4>Backend (Node.js, server-only)</h4>
+      <ul>
+        <li><strong>Hono v4</strong> — single catch-all route handler</li>
+        <li><strong>Prisma v5</strong> — type-safe ORM</li>
+        <li><strong>Supabase PostgreSQL</strong> — cloud database</li>
+        <li><strong>NextAuth v5 beta</strong> — email/password auth, JWT</li>
+        <li><strong>bcryptjs</strong> — password hashing (cost 12)</li>
+        <li><strong>Raw fetch</strong> — OpenAI & Gemini APIs (no SDKs)</li>
+        <li><strong>ReadableStream</strong> — SSE agent chat</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <h4>LLM Waterfall</h4>
+      <ul>
+        <li><strong>Primary:</strong> OpenAI <code>gpt-4o-mini</code></li>
+        <li><strong>Fallback:</strong> Google Gemini <code>gemini-1.5-flash</code></li>
+        <li><strong>Auto demo:</strong> if both keys exhausted (429)</li>
+        <li>In-memory exhaustion state per process</li>
+        <li>Persistent demo mode banner for users</li>
+        <li>Runtime key switching via /settings UI</li>
+      </ul>
+    </div>
+    <div class="arch-card">
+      <h4>Key Design Patterns</h4>
+      <ul>
+        <li><strong>Write-through cache:</strong> sync in-memory store for agent tools + fire-and-forget Prisma persistence</li>
+        <li><strong>Auth split:</strong> Edge-safe <code>auth.config.ts</code> + Node-only <code>auth.ts</code></li>
+        <li><strong>Provider-agnostic:</strong> one interface → Gemini / OpenAI / Azure / Anthropic</li>
+        <li><strong>Same tools in demo &amp; LLM modes</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="font-size:14px; font-weight:700; color:#0f2942; margin:390px 0 12px;">API Routes (all via Hono)</h3>
+  <table class="arch-table">
+    <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+    <tr><td>GET</td><td>/api/meta</td><td>Provider status, demo flag, agent tools list</td></tr>
+    <tr><td>GET</td><td>/api/experiments</td><td>List all available experiments</td></tr>
+    <tr><td>POST</td><td>/api/protocol/parse</td><td>Parse PDF/text into structured protocol steps</td></tr>
+    <tr><td>POST</td><td>/api/safety/check</td><td>Real-time reagent safety check</td></tr>
+    <tr><td>POST</td><td>/api/vision/check</td><td>AI photo verification (burette, gel, colour)</td></tr>
+    <tr><td>POST</td><td>/api/results/interpret</td><td>Grade result, compute deviation, diagnose</td></tr>
+    <tr><td>GET/POST</td><td>/api/session/:id</td><td>Get / update a lab session</td></tr>
+    <tr><td>POST</td><td>/api/session/action</td><td>Complete step, skip, manual override</td></tr>
+    <tr><td>POST</td><td>/api/agent/chat</td><td>SSE agent stream (plan → tools → answer)</td></tr>
+    <tr><td>GET</td><td>/api/dashboard/sessions</td><td>All session summaries from DB</td></tr>
+    <tr><td>GET</td><td>/api/dashboard/traces</td><td>Observability trace spans</td></tr>
+    <tr><td>GET</td><td>/api/dashboard/decisions</td><td>Agent decision log</td></tr>
+    <tr><td>GET/POST</td><td>/api/instructor/sessions</td><td>Instructor session management</td></tr>
+    <tr><td>GET/POST</td><td>/api/instructor/verify</td><td>Verification queue (approve/reject)</td></tr>
+    <tr><td>POST</td><td>/api/student/join</td><td>Join session via code</td></tr>
+    <tr><td>GET</td><td>/api/lab/:id/summary</td><td>Learning summary + badges</td></tr>
+    <tr><td>GET</td><td>/api/lab/:id/report</td><td>Full lab report JSON</td></tr>
+    <tr><td>PATCH</td><td>/api/settings/llm</td><td>Change provider / update API keys at runtime</td></tr>
+  </table>
+
+  <h3 style="font-size:14px; font-weight:700; color:#0f2942; margin:20px 0 12px;">10 Agent Tools</h3>
+  <table class="arch-table">
+    <tr><th>Tool</th><th>Description</th></tr>
+    <tr><td><code>get_protocol_step</code></td><td>Fetch full step details (instructions, reagents, science explanation)</td></tr>
+    <tr><td><code>check_safety</code></td><td>Detect reagent conflicts using the safety database + session history</td></tr>
+    <tr><td><code>lookup_reagent</code></td><td>Hazard profile for a single reagent — conflicts + concentration warnings</td></tr>
+    <tr><td><code>titration_concentration</code></td><td>Compute C = (M × V_titre) / V_analyte</td></tr>
+    <tr><td><code>reaction_rate</code></td><td>Compute rate = 1/time for iodine clock experiments</td></tr>
+    <tr><td><code>interpret_result</code></td><td>Grade result: % deviation, severity (green/amber/red), diagnosis, improvement</td></tr>
+    <tr><td><code>flag_downstream_steps</code></td><td>Cross-step reasoning: which steps become unreliable if one is skipped</td></tr>
+    <tr><td><code>search_library</code></td><td>List/filter available experiments</td></tr>
+    <tr><td><code>get_session_state</code></td><td>Live session status: step, safety alerts, vision pass, deviation</td></tr>
+    <tr><td><code>notify_instructor</code></td><td>Push a note to the instructor console</td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTION 3 — DATABASE SCHEMA
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Section 3</div>
+  <h2>Database Schema</h2>
+  <p class="desc">Prisma v5 schema targeting Supabase PostgreSQL. pgbouncer transaction-mode pooler (port 6543) for queries, direct connection (port 5432) for migrations.</p>
+</div>
+
+<div class="file-header"><span class="path">prisma/schema.prisma</span><span class="lang">Prisma</span></div>
+<pre>generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   <span class="comment">// pgbouncer port 6543</span>
+  directUrl = env("DIRECT_URL")     <span class="comment">// direct port 5432 for migrations</span>
+}
+
+<span class="comment">// ─── NextAuth models ─────────────────────────────────────────────────</span>
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          String    @default("student")  <span class="comment">// "instructor" | "student"</span>
+  accounts      Account[]
+  sessions      Session[]
+  labSessions   LabSession[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+  @@id([identifier, token])
+}
+
+<span class="comment">// ─── Lab models ──────────────────────────────────────────────────────</span>
+
+model LabSession {
+  id               String              @id
+  studentName      String              @default("Student")
+  experimentId     String
+  experimentName   String
+  currentStep      Int                 @default(1)
+  totalSteps       Int
+  status           String              @default("active")
+  reagentHistory   Json                @default("[]")
+  lastVisionPass   Boolean?
+  deviationPercent Float?
+  safetyAlertCount Int                 @default(0)
+  steps            Json                @default("[]")
+  safetyLog        Json                @default("[]")
+  notes            Json                @default("[]")
+  instructorCode   String?
+  instructor       InstructorSession?  @relation(fields: [instructorCode], references: [code])
+  verifications    VerificationEntry[]
+  userId           String?
+  user             User?               @relation(fields: [userId], references: [id])
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+}
+
+model InstructorSession {
+  code           String       @id
+  sessionName    String
+  experimentId   String
+  experimentName String
+  batch          String       @default("")
+  department     String       @default("")
+  date           String
+  students       LabSession[]
+  createdAt      DateTime     @default(now())
+}
+
+model VerificationEntry {
+  id                String     @id @default(cuid())
+  sessionId         String
+  session           LabSession @relation(fields: [sessionId], references: [id])
+  studentName       String
+  stepNumber        Int
+  imageBase64       String     @db.Text
+  aiReading         Float?
+  aiConfidence      Float
+  aiMessage         String?
+  status            String     @default("pending")
+  instructorComment String?
+  submittedAt       DateTime   @default(now())
+  resolvedAt        DateTime?
+}
+
+model AgentDecision {
+  id        String   @id @default(cuid())
+  sessionId String
+  trigger   String
+  plan      String   @db.Text
+  tools     Json     @default("[]")
+  outcome   String   @db.Text
+  provider  String
+  latencyMs Int
+  createdAt DateTime @default(now())
+}
+
+model TraceSpan {
+  id            String   @id @default(cuid())
+  toolName      String
+  inputSummary  String
+  outputSummary String
+  latencyMs     Int
+  confidence    Float?
+  createdAt     DateTime @default(now())
+}
+
+model AppSetting {
+  key       String   @id    <span class="comment">// e.g. "llm.provider", "llm.openai_key"</span>
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTION 4 — SHARED TYPES
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Section 4</div>
+  <h2>Shared Types</h2>
+  <p class="desc">Single source of truth for all data shapes — shared by React client and Next.js server handlers.</p>
+</div>
+
+<div class="file-header"><span class="path">src/lib/types.ts</span><span class="lang">TypeScript</span></div>
+<pre><span class="comment">/** LabMind canonical types. Shared by React client and server route handlers. */</span>
+
+<span class="comment">// ─── Protocol &amp; experiments ─────────────────────────────────────────</span>
+export type VisionCheckType = "burette_reading" | "colour_change" | "gel_band";
+
+export interface Reagent { name: string; concentration?: string; volume_ml?: number | null; }
+
+export interface VisionExpected {
+  type: VisionCheckType; expected_value: number | null; tolerance: number;
+}
+
+export interface ProtocolStep {
+  step_number: number; title: string; instructions: string[];
+  reagents: Reagent[]; duration_seconds: number | null; safety_flags: string[];
+  science_explanation: string; expected_observation: string;
+  vision_check_required: boolean; vision_expected: VisionExpected | null;
+  affects_steps?: number[];  <span class="comment">// cross-step dependency graph</span>
+}
+
+export interface Protocol { experiment_name: string; steps: ProtocolStep[]; }
+
+export type ExperimentDomain = "chemistry" | "biology" | "kinetics";
+export type Difficulty = "beginner" | "intermediate" | "advanced";
+
+export interface ExperimentMeta {
+  id: string; name: string; domain: ExperimentDomain; difficulty: Difficulty;
+  duration_minutes: number; description: string; hazard_level: "low" | "medium" | "high";
+  theoretical: { label: string; value: number; unit: string };
+  step_count: number; reagent_names: string[];
+}
+
+export interface Experiment extends ExperimentMeta { protocol: Protocol; }
+
+<span class="comment">// ─── Vision verification ────────────────────────────────────────────</span>
+export interface VisionResult {
+  reading: number | null; confidence: number; pass: boolean;
+  deviation: number | null; message: string; notes: string;
+  attempts: number; manual_override_available: boolean;
+}
+
+<span class="comment">// ─── Safety engine ──────────────────────────────────────────────────</span>
+export type Severity = "low" | "medium" | "high";
+
+export interface SafetyConflict {
+  reagents: string[]; type: string; severity: Severity;
+  description: string; action: string;
+}
+export interface SafetyResult { conflict: boolean; alerts: SafetyConflict[]; }
+
+<span class="comment">// ─── Result interpretation ──────────────────────────────────────────</span>
+export type ResultSeverity = "green" | "amber" | "red";
+export interface InterpretResult {
+  deviation_percent: number; severity: ResultSeverity;
+  diagnosis: string; improvement: string; learning_point: string;
+}
+
+<span class="comment">// ─── Sessions ───────────────────────────────────────────────────────</span>
+export type SessionStatus = "active" | "completed" | "safety_alert";
+export type StepState = "pending" | "completed" | "skipped";
+
+export interface StepRecord {
+  step_number: number; state: StepState; flagged: boolean;
+  vision_attempts: number; vision_reading: number | null;
+  vision_pass: boolean | null;
+  manual_override: { value: number | null; note: string } | null;
+  completed_at: string | null;
+}
+
+export interface SessionSummary {
+  session_id: string; student_name: string; experiment_id: string;
+  experiment_name: string; current_step: number; total_steps: number;
+  status: SessionStatus; last_vision_pass: boolean | null;
+  deviation_percent: number | null; safety_alert_count: number;
+  flagged_step_count: number; override_count: number; updated_at: string;
+}
+
+<span class="comment">// ─── Agent ──────────────────────────────────────────────────────────</span>
+export type AgentEventType = "plan" | "tool_call" | "tool_result" | "delta" | "done" | "error";
+export interface AgentEvent { type: AgentEventType; text?: string; tool?: string; data?: unknown; }
+export interface ChatMessage {
+  role: "user" | "assistant"; content: string;
+  trace?: { tool: string; summary: string }[]; at: string;
+}
+export interface AgentChatRequest {
+  session_id?: string; experiment_id?: string; current_step?: number;
+  message: string; history: { role: "user" | "assistant"; content: string }[];
+}
+export interface AgentDecision {
+  id: string; session_id: string; trigger: string; plan: string;
+  tools: { tool: string; input: string; output: string }[];
+  outcome: string; provider: string; latency_ms: number; at: string;
+}
+
+<span class="comment">// ─── Instructor &amp; Verification ──────────────────────────────────────</span>
+export interface InstructorSession {
+  code: string; session_name: string; experiment_id: string;
+  experiment_name: string; batch: string; department: string;
+  date: string; created_at: string; student_session_ids: string[];
+}
+export type VerificationStatus = "pending" | "approved" | "rejected";
+export interface VerificationEntry {
+  id: string; session_id: string; student_name: string; step_number: number;
+  image_base64: string; ai_reading: number | null; ai_confidence: number;
+  ai_message: string; submitted_at: string; status: VerificationStatus;
+  instructor_comment: string | null; resolved_at: string | null;
+}
+
+<span class="comment">// ─── Learning summary &amp; badges ──────────────────────────────────────</span>
+export interface Badge { id: string; label: string; description: string; icon: string; earned: boolean; }
+export interface LearningSummary {
+  session_id: string; experiment_name: string; performance_score: number;
+  accuracy_score: number; steps_completed: number; steps_total: number;
+  skipped_steps: number; safety_alerts: number; overrides: number;
+  mistakes: string[]; concepts_learned: string[];
+  improvement_suggestions: string[]; badges: Badge[];
+}
+export interface LabReport {
+  session_id: string; student_name: string; experiment_name: string;
+  date: string; aim: string; apparatus: string[]; procedure: string[];
+  observations: { step: number; observation: string; reading?: number | null }[];
+  calculations: string; result: string; deviation_percent: number | null;
+  mistakes: string[]; instructor_remarks: string; performance_score: number;
+}</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTIONS 5-8 — LLM CONFIG
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Sections 5 – 8</div>
+  <h2>LLM Config, Provider Waterfall &amp; Runtime Settings</h2>
+  <p class="desc">Provider-agnostic LLM layer with auto waterfall (OpenAI → Gemini → demo), in-process exhaustion tracking, and DB-backed runtime key management.</p>
+</div>
+
+<div class="file-header"><span class="path">src/server/config.ts</span><span class="lang">TypeScript</span></div>
+<pre>import "server-only";
+import { getRuntimeSettings } from "@/server/runtime-config";
+
+export type LlmProvider = "demo" | "auto" | "gemini" | "openai" | "azure" | "claude";
+
+export interface LabmindConfig {
+  llmProvider: LlmProvider;
+  demoMode: boolean;
+  geminiApiKey?: string;  geminiModel: string;
+  openaiApiKey?: string;  openaiModel: string;
+  anthropicApiKey?: string; anthropicModel: string;
+  azureEndpoint?: string; azureApiKey?: string;
+  azureDeployment: string; azureApiVersion: string;
+  instructorPasscode: string;
+}
+
+export function getConfig(): LabmindConfig {
+  const env = process.env;
+  const rt = getRuntimeSettings(); <span class="comment">// DB overrides; null until first load</span>
+  return {
+    llmProvider: rt?.provider ?? (env.LLM_PROVIDER as LlmProvider) ?? "auto",
+    demoMode: env.DEMO_MODE === "true",
+    geminiApiKey: rt?.geminiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY,
+    geminiModel: env.GEMINI_MODEL ?? "gemini-1.5-flash",   <span class="comment">// cheapest Gemini</span>
+    openaiApiKey: rt?.openaiKey ?? env.OPENAI_API_KEY,
+    openaiModel: env.OPENAI_MODEL ?? "gpt-4o-mini",        <span class="comment">// cheapest OpenAI</span>
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    anthropicModel: env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+    azureEndpoint: env.AZURE_OPENAI_ENDPOINT,
+    azureApiKey: env.AZURE_OPENAI_API_KEY,
+    azureDeployment: env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o-mini",
+    azureApiVersion: env.AZURE_OPENAI_API_VERSION ?? "2024-02-01",
+    instructorPasscode: env.INSTRUCTOR_PASSCODE ?? "labmind2026",
+  };
+}
+
+<span class="comment">/** Demo if explicitly toggled, or no keys for the chosen provider. */</span>
+export function effectiveDemo(c: LabmindConfig = getConfig()): boolean {
+  if (c.demoMode || c.llmProvider === "demo") return true;
+  if (c.llmProvider === "auto") return !c.openaiApiKey && !c.geminiApiKey;
+  if (c.llmProvider === "gemini" && !c.geminiApiKey) return true;
+  if (c.llmProvider === "openai" && !c.openaiApiKey) return true;
+  if (c.llmProvider === "azure" && !c.azureApiKey) return true;
+  if (c.llmProvider === "claude" && !c.anthropicApiKey) return true;
+  return false;
+}
+
+export function providerLabel(): string {
+  const c = getConfig();
+  if (effectiveDemo(c)) return "demo";
+  if (c.llmProvider === "auto") return c.openaiApiKey ? "openai" : "gemini";
+  return c.llmProvider;
+}</pre>
+
+<div class="file-header"><span class="path">src/server/llm/provider-state.ts</span><span class="lang">TypeScript</span></div>
+<pre><span class="comment">/** In-memory tracking of exhausted LLM providers (persists per process). */</span>
+import "server-only";
+
+export type ExhaustedReason = "quota" | "invalid_key";
+const _exhausted = new Map&lt;string, ExhaustedReason&gt;();
+
+export function markExhausted(provider: string, reason: ExhaustedReason = "quota") {
+  _exhausted.set(provider, reason);
+}
+export function isExhausted(provider: string): boolean { return _exhausted.has(provider); }
+export function exhaustedProviders(): Record&lt;string, ExhaustedReason&gt; {
+  return Object.fromEntries(_exhausted);
+}
+export function anyExhausted(): boolean { return _exhausted.size > 0; }</pre>
+
+<div class="file-header"><span class="path">src/server/runtime-config.ts</span><span class="lang">TypeScript</span></div>
+<pre><span class="comment">/**
+ * Runtime LLM config — overrides environment variables.
+ * Persisted to AppSetting table; in-memory singleton cached between requests.
+ */</span>
+import "server-only";
+import { db } from "@/server/db";
+import type { LlmProvider } from "@/server/config";
+
+export interface LlmRuntimeSettings {
+  provider: LlmProvider;
+  openaiKey?: string;
+  geminiKey?: string;
+}
+
+const KEYS = { provider: "llm.provider", openaiKey: "llm.openai_key", geminiKey: "llm.gemini_key" };
+
+let _cache: LlmRuntimeSettings | null = null;
+let _loaded = false;
+
+export async function loadRuntimeSettings(): Promise&lt;LlmRuntimeSettings&gt; {
+  if (_loaded &amp;&amp; _cache) return _cache;
+  const rows = await db.appSetting.findMany({ where: { key: { in: Object.values(KEYS) } } });
+  const map = Object.fromEntries(rows.map((r) =&gt; [r.key, r.value]));
+  _cache = {
+    provider: (map[KEYS.provider] as LlmProvider) || "auto",
+    openaiKey: map[KEYS.openaiKey] || undefined,
+    geminiKey: map[KEYS.geminiKey] || undefined,
+  };
+  _loaded = true;
+  return _cache;
+}
+
+export function getRuntimeSettings(): LlmRuntimeSettings | null { return _cache; }
+
+export async function saveRuntimeSettings(
+  patch: Partial&lt;LlmRuntimeSettings&gt;
+): Promise&lt;LlmRuntimeSettings&gt; {
+  const updates = [
+    patch.provider !== undefined &amp;&amp; { key: KEYS.provider, value: patch.provider },
+    patch.openaiKey !== undefined &amp;&amp; { key: KEYS.openaiKey, value: patch.openaiKey },
+    patch.geminiKey !== undefined &amp;&amp; { key: KEYS.geminiKey, value: patch.geminiKey },
+  ].filter(Boolean) as { key: string; value: string }[];
+
+  await Promise.all(updates.map((u) =&gt;
+    db.appSetting.upsert({ where: { key: u.key }, create: u, update: { value: u.value } })
+  ));
+  _loaded = false; _cache = null;
+  return loadRuntimeSettings();
+}
+
+export async function getLlmStatus() {
+  const settings = await loadRuntimeSettings();
+  return {
+    provider: settings.provider,
+    hasOpenaiKey: !!(settings.openaiKey ?? process.env.OPENAI_API_KEY),
+    hasGeminiKey: !!(settings.geminiKey ?? process.env.GEMINI_API_KEY),
+    <span class="comment">// Never expose actual key values to the client</span>
+  };
+}</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTIONS 9-10 — AGENT
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Sections 9 &amp; 10</div>
+  <h2>Agent Orchestrator &amp; Tool Registry</h2>
+  <p class="desc">A genuine agentic loop: real LLM function-calling mode AND a deterministic demo planner that executes the same 10 tools. Both stream identical events.</p>
+</div>
+
+<div class="file-header"><span class="path">src/server/agent/orchestrator.ts</span><span class="lang">TypeScript</span></div>
+<pre><span class="comment">/**
+ * Agent loop:  receive message + context → decide tools → execute → answer.
+ * Two engines, one interface:
+ *   • real LLM (openai/gemini/azure/claude) → function-calling loop (max 5 iters)
+ *   • demo                                  → deterministic intent planner
+ * Both stream: plan → tool_call → tool_result → delta → done
+ */</span>
+import "server-only";
+import type { AgentChatRequest, AgentEvent, AgentDecision } from "@/lib/types";
+import { effectiveDemo, providerLabel } from "@/server/config";
+import { completeWithTools } from "@/server/llm/provider";
+import { getExperiment } from "@/server/experiments";
+import { logAgentDecision } from "@/server/store/session-store";
+import { TOOLS, toolByName, toolSchemas, type ToolContext } from "./tools";
+
+type Emit = (e: AgentEvent) =&gt; void;
+const MAX_ITERS = 5;
+
+function systemPrompt(ctx: ToolContext): string {
+  const exp = getExperiment(ctx.experimentId);
+  const step = exp.protocol.steps.find((s) =&gt; s.step_number === (ctx.currentStep ?? 0));
+  return [
+    "You are LabMind, an expert, safety-first AI lab partner for physical science experiments.",
+    `The student is running: ${exp.name} (${exp.domain}). Expected result: ${exp.theoretical.label} ≈ ${exp.theoretical.value} ${exp.theoretical.unit}.`,
+    step ? `They are on step ${step.step_number}: ${step.title}.` : "",
+    "Use the provided tools to ground every answer in real data — never guess about safety.",
+    "Be concise, encouraging, and specific. Always foreground safety.",
+  ].filter(Boolean).join("\n");
+}
+
+export async function runAgentStream(req: AgentChatRequest, emit: Emit): Promise&lt;void&gt; {
+  const ctx: ToolContext = { sessionId: req.session_id, experimentId: req.experiment_id, currentStep: req.current_step };
+  const t0 = Date.now(); const toolsUsed: AgentDecision["tools"] = []; let plan = "", answer = "";
+
+  try {
+    if (effectiveDemo()) {
+      ({ plan, answer } = await runDemo(req, ctx, emit, toolsUsed));
+    } else {
+      ({ plan, answer } = await runLlm(req, ctx, emit, toolsUsed));
+    }
+  } catch (err) {
+    emit({ type: "error", text: (err as Error).message });
+  }
+
+  emit({ type: "done", text: answer });
+  logAgentDecision({
+    id: crypto.randomUUID(), session_id: req.session_id ?? "anon",
+    trigger: req.message, plan, tools: toolsUsed,
+    outcome: answer.slice(0, 240), provider: providerLabel(),
+    latency_ms: Date.now() - t0, at: new Date().toISOString(),
+  });
+}
+
+<span class="comment">// ─── Real LLM loop (function-calling, up to MAX_ITERS) ──────────────</span>
+async function runLlm(req: AgentChatRequest, ctx: ToolContext, emit: Emit, used: AgentDecision["tools"]) {
+  const system = systemPrompt(ctx);
+  const messages = [...req.history.map((m) =&gt; ({ role: m.role, content: m.content })),
+                    { role: "user" as const, content: req.message }];
+  emit({ type: "plan", text: "Deciding which tools to use…" });
+  let answer = "";
+  for (let i = 0; i &lt; MAX_ITERS; i++) {
+    const turn = await completeWithTools(system, messages, toolSchemas());
+    if (turn.toolCalls.length === 0) { answer = turn.text || "Done."; break; }
+    for (const call of turn.toolCalls) {
+      emit({ type: "tool_call", tool: call.name, text: summarizeArgs(call.args) });
+      const tool = toolByName(call.name);
+      const out = tool ? tool.run(call.args, ctx) : { error: "unknown tool" };
+      const outStr = JSON.stringify(out);
+      emit({ type: "tool_result", tool: call.name, text: truncate(outStr, 200), data: out });
+      used.push({ tool: call.name, input: summarizeArgs(call.args), output: truncate(outStr, 200) });
+      messages.push({ role: "assistant", content: `calling ${call.name}` });
+      messages.push({ role: "tool", content: outStr, toolName: call.name });
+    }
+  }
+  if (!answer) answer = "I gathered the data above — check the tool results.";
+  streamText(answer, emit);
+  return { plan: "LLM tool-calling loop", answer };
+}
+
+<span class="comment">// ─── Demo: deterministic intent planner that calls real tools ────────</span>
+async function runDemo(req: AgentChatRequest, ctx: ToolContext, emit: Emit, used: AgentDecision["tools"]) {
+  const msg = req.message.toLowerCase();
+  const exp = getExperiment(ctx.experimentId);
+  const nums = (req.message.match(/[-+]?\d*\.?\d+/g) ?? []).map(Number).filter((n) =&gt; !Number.isNaN(n));
+  const reagents = extractReagents(req.message);
+  const calls: { tool: string; args: Record&lt;string, unknown&gt; }[] = [];
+  let intent = "general";
+
+  if (/(safe|mix|combine|danger)/.test(msg) &amp;&amp; reagents.length &gt;= 2) {
+    intent = "safety"; calls.push({ tool: "check_safety", args: { reagents } });
+  } else if (/(concentration|molarity|titre|calculate)/.test(msg)) {
+    intent = "titration"; calls.push({ tool: "titration_concentration", args: { titre_volume_ml: nums[0] ?? 24.5 } });
+  } else if (/(rate|1\/t|clock)/.test(msg) &amp;&amp; exp.domain === "kinetics") {
+    intent = "rate"; calls.push({ tool: "reaction_rate", args: { time_seconds: nums[0] ?? 40 } });
+  } else if (/(deviation|interpret|result|grade)/.test(msg) &amp;&amp; nums.length) {
+    intent = "interpret";
+    calls.push({ tool: "interpret_result", args: { measured: nums[0], expected: nums[1] ?? exp.theoretical.value, unit: exp.theoretical.unit } });
+  } else {
+    intent = "step"; calls.push({ tool: "get_protocol_step", args: { step_number: ctx.currentStep } });
+  }
+
+  emit({ type: "plan", text: planText(intent, reagents, nums) });
+  const results: Record&lt;string, unknown&gt;[] = [];
+  for (const c of calls) {
+    emit({ type: "tool_call", tool: c.tool, text: summarizeArgs(c.args) });
+    const tool = toolByName(c.tool)!;
+    const out = tool.run(c.args, ctx) as Record&lt;string, unknown&gt;;
+    emit({ type: "tool_result", tool: c.tool, text: truncate(JSON.stringify(out), 200), data: out });
+    used.push({ tool: c.tool, input: summarizeArgs(c.args), output: truncate(JSON.stringify(out), 200) });
+    results.push(out);
+  }
+  const answer = composeAnswer(intent, results, exp, reagents);
+  streamText(answer, emit);
+  return { plan: planText(intent, reagents, nums), answer };
+}
+
+export const AGENT_TOOL_NAMES = TOOLS.map((t) =&gt; t.name);</pre>
+
+<div class="file-header"><span class="path">src/server/agent/tools.ts</span><span class="lang">TypeScript</span></div>
+<pre><span class="comment">/**
+ * 10 agent tools — each has a JSON schema (for LLM function-calling)
+ * AND a server-side run() implementation. Same tools in both demo + LLM modes.
+ */</span>
+import "server-only";
+import { getExperiment, listExperiments } from "@/server/experiments";
+import { checkSafety } from "@/server/tools/safety";
+import { interpret } from "@/server/tools/result-interpreter";
+import { CONFLICTS, CONCENTRATION_WARNINGS } from "@/server/data/reagent-safety";
+import { addInstructorNote, flagDownstreamSteps, getSession } from "@/server/store/session-store";
+import type { Reagent } from "@/lib/types";
+
+export interface ToolContext { sessionId?: string; experimentId?: string; currentStep?: number; }
+export interface AgentTool {
+  name: string; description: string;
+  parameters: Record&lt;string, unknown&gt;;
+  run: (args: Record&lt;string, unknown&gt;, ctx: ToolContext) =&gt; unknown;
+}
+
+const str = (v: unknown, d = "") =&gt; (typeof v === "string" ? v : d);
+const num = (v: unknown, d = 0) =&gt; (typeof v === "number" ? v : Number.parseFloat(String(v ?? "")) || d);
+
+export const TOOLS: AgentTool[] = [
+  {
+    name: "get_protocol_step",
+    description: "Get full details of a step: reagents, safety flags, science, expected observation.",
+    parameters: { type: "object", properties: { step_number: { type: "number" } } },
+    run: (args, ctx) =&gt; {
+      const exp = getExperiment(ctx.experimentId);
+      const step = exp.protocol.steps.find((s) =&gt; s.step_number === num(args.step_number, ctx.currentStep ?? 1)) ?? exp.protocol.steps[0];
+      return { experiment: exp.name, step_number: step.step_number, title: step.title,
+               instructions: step.instructions, reagents: step.reagents.map((r) =&gt; r.name),
+               safety_flags: step.safety_flags, science: step.science_explanation };
+    },
+  },
+  {
+    name: "check_safety",
+    description: "Check whether combining given reagents (+ session history) is safe.",
+    parameters: { type: "object", properties: { reagents: { type: "array", items: { type: "string" } } }, required: ["reagents"] },
+    run: (args, ctx) =&gt; {
+      const names = Array.isArray(args.reagents) ? (args.reagents as unknown[]).map(String) : [];
+      const current: Reagent[] = names.map((name) =&gt; ({ name }));
+      const history = (ctx.sessionId ? getSession(ctx.sessionId)?.reagentHistory : []) ?? [];
+      const res = checkSafety(current, history);
+      return { safe: !res.conflict, alerts: res.alerts.map((a) =&gt; ({ reagents: a.reagents, type: a.type, severity: a.severity, action: a.action })) };
+    },
+  },
+  {
+    name: "lookup_reagent",
+    description: "Look up hazards, conflicts and concentration warnings for a single reagent.",
+    parameters: { type: "object", properties: { reagent: { type: "string" } }, required: ["reagent"] },
+    run: (args) =&gt; {
+      const name = str(args.reagent).toLowerCase();
+      const conflicts = CONFLICTS.filter((c) =&gt; c.reagents.some((r) =&gt; r.toLowerCase() === name))
+        .map((c) =&gt; ({ with: c.reagents.find((r) =&gt; r.toLowerCase() !== name), type: c.type, severity: c.severity }));
+      const warnings = CONCENTRATION_WARNINGS.filter((w) =&gt; w.reagent.toLowerCase() === name).map((w) =&gt; w.message);
+      return { reagent: args.reagent, known_conflicts: conflicts, concentration_warnings: warnings };
+    },
+  },
+  {
+    name: "titration_concentration",
+    description: "Compute C(unknown) = (titrant_molarity × titre_volume_ml) / analyte_volume_ml",
+    parameters: { type: "object", properties: { titre_volume_ml: { type: "number" }, titrant_molarity: { type: "number" }, analyte_volume_ml: { type: "number" } }, required: ["titre_volume_ml"] },
+    run: (args) =&gt; {
+      const titre = num(args.titre_volume_ml), m = num(args.titrant_molarity, 0.1), v = num(args.analyte_volume_ml, 25);
+      return { concentration_mol_per_L: Math.round((m * titre / v) * 10000) / 10000, formula: "C = (M·Vtitre)/Vanalyte" };
+    },
+  },
+  {
+    name: "reaction_rate",
+    description: "Compute reaction rate = 1/time for clock reactions.",
+    parameters: { type: "object", properties: { time_seconds: { type: "number" } }, required: ["time_seconds"] },
+    run: (args) =&gt; { const t = num(args.time_seconds); return { rate_per_second: t &gt; 0 ? Math.round((1 / t) * 10000) / 10000 : null }; },
+  },
+  {
+    name: "interpret_result",
+    description: "Grade measured result: % deviation, severity (green/amber/red), diagnosis, improvement.",
+    parameters: { type: "object", properties: { measured: { type: "number" }, expected: { type: "number" }, unit: { type: "string" } }, required: ["measured", "expected"] },
+    run: (args, ctx) =&gt; {
+      const r = interpret({ session_id: ctx.sessionId ?? "agent", student_result: num(args.measured),
+        theoretical_value: num(args.expected), unit: str(args.unit), experiment_id: ctx.experimentId });
+      return { deviation_percent: r.deviation_percent, severity: r.severity, diagnosis: r.diagnosis, improvement: r.improvement };
+    },
+  },
+  {
+    name: "flag_downstream_steps",
+    description: "Given a skipped/failed step, return downstream steps that become unreliable.",
+    parameters: { type: "object", properties: { step_number: { type: "number" } }, required: ["step_number"] },
+    run: (args, ctx) =&gt; {
+      const n = num(args.step_number, ctx.currentStep ?? 1);
+      const affected = flagDownstreamStepsFor(ctx.experimentId, n);
+      if (ctx.sessionId) flagDownstreamSteps(ctx.sessionId, n, affected);
+      return { skipped_step: n, unreliable_steps: affected };
+    },
+  },
+  {
+    name: "search_library",
+    description: "List or keyword-search available lab experiments.",
+    parameters: { type: "object", properties: { query: { type: "string" } } },
+    run: (args) =&gt; {
+      const q = str(args.query).toLowerCase();
+      return listExperiments().filter((e) =&gt; !q || `${e.name} ${e.domain}`.toLowerCase().includes(q))
+        .map((e) =&gt; ({ id: e.id, name: e.name, domain: e.domain, difficulty: e.difficulty, steps: e.step_count }));
+    },
+  },
+  {
+    name: "get_session_state",
+    description: "Get live session status: step, safety alerts, vision pass, deviation.",
+    parameters: { type: "object", properties: {} },
+    run: (_args, ctx) =&gt; {
+      const s = ctx.sessionId ? getSession(ctx.sessionId) : undefined;
+      if (!s) return { status: "no active session" };
+      return { experiment: s.experimentName, current_step: s.currentStep, total_steps: s.totalSteps,
+               status: s.status, last_vision_pass: s.lastVisionPass, safety_alerts: s.safetyAlertCount };
+    },
+  },
+  {
+    name: "notify_instructor",
+    description: "Push a note to the instructor console.",
+    parameters: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+    run: (args, ctx) =&gt; {
+      const msg = str(args.message);
+      if (ctx.sessionId) addInstructorNote(ctx.sessionId, msg);
+      return { delivered: true, message: msg };
+    },
+  },
+];
+
+export function flagDownstreamStepsFor(experimentId: string | undefined, stepNumber: number): number[] {
+  const exp = getExperiment(experimentId);
+  return exp.protocol.steps.find((s) =&gt; s.step_number === stepNumber)?.affects_steps ?? [];
+}
+export function toolByName(name: string): AgentTool | undefined { return TOOLS.find((t) =&gt; t.name === name); }
+export function toolSchemas() { return TOOLS.map((t) =&gt; ({ name: t.name, description: t.description, parameters: t.parameters })); }</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTIONS 19 — HONO API ROUTER
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Section 19</div>
+  <h2>Hono API Router</h2>
+  <p class="desc">Single catch-all Next.js route. All 19 API endpoints consolidated in one Hono app, including SSE streaming for agent chat.</p>
+</div>
+
+<div class="file-header"><span class="path">src/app/api/[[...route]]/route.ts  (key sections)</span><span class="lang">TypeScript</span></div>
+<pre>import { Hono } from "hono";
+import { handle } from "hono/vercel";
+import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
+import { anyExhausted, exhaustedProviders } from "@/server/llm/provider-state";
+import { getLlmStatus, loadRuntimeSettings, saveRuntimeSettings } from "@/server/runtime-config";
+import { runAgentStream, AGENT_TOOL_NAMES } from "@/server/agent/orchestrator";
+<span class="comment">// ... (all other imports)</span>
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const app = new Hono().basePath("/api");
+
+<span class="comment">// ─── Init on first request ─────────────────────────────────────────</span>
+let seeded = false;
+app.use("*", async (_c, next) =&gt; {
+  if (!seeded) {
+    seeded = true;
+    await Promise.all([seedDemoData().catch(() =&gt; {}), loadRuntimeSettings().catch(() =&gt; {})]);
+  }
+  return next();
+});
+
+<span class="comment">// ─── Meta ─────────────────────────────────────────────────────────</span>
+app.get("/meta", (c) =&gt; {
+  const keysExhausted = anyExhausted();
+  return c.json({ provider: providerLabel(), configured_provider: getConfig().llmProvider,
+                  demo: effectiveDemo() || keysExhausted, keys_exhausted: keysExhausted,
+                  exhausted_providers: exhaustedProviders(), agent_tools: AGENT_TOOL_NAMES });
+});
+
+<span class="comment">// ─── LLM Settings ─────────────────────────────────────────────────</span>
+app.get("/settings/llm", async (c) =&gt; {
+  const status = await getLlmStatus();
+  return c.json({ ...status, keys_exhausted: anyExhausted(), exhausted_providers: exhaustedProviders() });
+});
+app.patch("/settings/llm", async (c) =&gt; {
+  const body = await c.req.json&lt;{ provider?: string; openai_key?: string; gemini_key?: string }&gt;();
+  const updated = await saveRuntimeSettings({ provider: body.provider as LlmProvider, openaiKey: body.openai_key, geminiKey: body.gemini_key });
+  return c.json({ ok: true, provider: updated.provider });
+});
+
+<span class="comment">// ─── Agent chat (SSE streaming) ───────────────────────────────────</span>
+app.post("/agent/chat", async (c) =&gt; {
+  const body = await c.req.json&lt;AgentChatRequest&gt;();
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream&lt;Uint8Array&gt;({
+    async start(controller) {
+      const emit = (e: AgentEvent) =&gt; controller.enqueue(encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+      try {
+        await runAgentStream(body, emit);
+      } catch (err) {
+        const msg = (err as Error).message;
+        emit({ type: "error", text: msg.includes("ALL_KEYS_EXHAUSTED")
+          ? "⚠️ API key limit reached — all providers exhausted. Running in demo mode."
+          : msg });
+      } finally { controller.close(); }
+    },
+  });
+  return new Response(stream, { headers: {
+    "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive",
+  }});
+});
+
+<span class="comment">// ─── Safety, Vision, Interpret ────────────────────────────────────</span>
+app.post("/safety/check", async (c) =&gt; { <span class="comment">/* call checkSafety(), log trace */</span> });
+app.post("/vision/check", async (c) =&gt; { <span class="comment">/* call checkVision(), submit to verification queue */</span> });
+app.post("/results/interpret", async (c) =&gt; { <span class="comment">/* call interpret(), record result in session */</span> });
+
+<span class="comment">// ─── Instructor routes ────────────────────────────────────────────</span>
+app.get("/instructor/sessions", async (c) =&gt; c.json(await listInstructorSessions()));
+app.post("/instructor/sessions", async (c) =&gt; { <span class="comment">/* createInstructorSession() */</span> });
+app.get("/instructor/verify", async (c) =&gt; c.json(await listVerifications()));
+app.post("/instructor/verify", async (c) =&gt; { <span class="comment">/* submitVerification() or resolveVerification() */</span> });
+
+<span class="comment">// ─── Student routes ───────────────────────────────────────────────</span>
+app.post("/student/join", async (c) =&gt; { <span class="comment">/* getInstructorSession(), addStudentToSession() */</span> });
+
+export const GET = handle(app);
+export const POST = handle(app);
+export const PATCH = handle(app);</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTIONS 20-22 — AUTH
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Sections 20 – 22</div>
+  <h2>Authentication (NextAuth v5)</h2>
+  <p class="desc">Split config: Edge-safe auth.config.ts (no bcrypt) for middleware, full auth.ts (Node.js, Credentials + PrismaAdapter) for sign-in. JWT session strategy.</p>
+</div>
+
+<div class="file-header"><span class="path">src/auth.config.ts  — Edge Runtime (no Node.js deps)</span><span class="lang">TypeScript</span></div>
+<pre>import type { NextAuthConfig } from "next-auth";
+
+export const authConfig = {
+  pages: { signIn: "/auth", error: "/auth" },
+  session: { strategy: "jwt" as const },
+  callbacks: {
+    authorized({ auth, request: { nextUrl } }) {
+      const isLoggedIn = !!auth?.user;
+      const pub = ["/auth", "/signup", "/"].some((p) =&gt; nextUrl.pathname === p || nextUrl.pathname.startsWith(p + "?"));
+      if (pub) return true;
+      if (!isLoggedIn) return Response.redirect(new URL("/auth", nextUrl));
+      return true;
+    },
+    jwt({ token, user }) {
+      if (user) { token.id = user.id!; token.role = (user as any).role ?? "student"; }
+      return token;
+    },
+    session({ session, token }) {
+      session.user.id = token.id as string;
+      session.user.role = token.role as "instructor" | "student";
+      return session;
+    },
+  },
+  providers: [],   <span class="comment">// populated in auth.ts with Credentials</span>
+} satisfies NextAuthConfig;</pre>
+
+<div class="file-header"><span class="path">src/auth.ts  — Full config (Node.js, Credentials + PrismaAdapter)</span><span class="lang">TypeScript</span></div>
+<pre>import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import bcrypt from "bcryptjs";
+import { db } from "@/server/db";
+import { authConfig } from "@/auth.config";
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
+  adapter: PrismaAdapter(db),
+  providers: [
+    Credentials({
+      credentials: { email: { label: "Email", type: "email" }, password: { label: "Password", type: "password" } },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const user = await db.user.findUnique({ where: { email: credentials.email as string } });
+        if (!user?.password) return null;
+        const valid = await bcrypt.compare(credentials.password as string, user.password);
+        if (!valid) return null;
+        return { id: user.id, email: user.email, name: user.name ?? user.email, role: user.role as "instructor" | "student" };
+      },
+    }),
+  ],
+});</pre>
+
+<div class="file-header"><span class="path">src/middleware.ts</span><span class="lang">TypeScript</span></div>
+<pre>import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
+
+<span class="comment">// Uses Edge-safe authConfig only — no bcrypt, no Prisma</span>
+export default NextAuth(authConfig).auth;
+
+export const config = {
+  matcher: ["/((?!api/auth|_next/static|_next/image|favicon\\.ico|$|auth|signup).*)"],
+};</pre>
+
+<div class="file-header"><span class="path">src/app/api/auth/signup/route.ts</span><span class="lang">TypeScript</span></div>
+<pre>import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
+import { db } from "@/server/db";
+
+export async function POST(req: Request) {
+  const { name, email, password, role } = await req.json();
+  if (!email || !password) return NextResponse.json({ error: "email and password required" }, { status: 400 });
+  if (password.length &lt; 6) return NextResponse.json({ error: "password too short" }, { status: 400 });
+
+  const existing = await db.user.findUnique({ where: { email } });
+  if (existing) return NextResponse.json({ error: "email already registered" }, { status: 409 });
+
+  const hashed = await bcrypt.hash(password, 12);
+  const user = await db.user.create({ data: { name, email, password: hashed, role: role ?? "student" } });
+  return NextResponse.json({ ok: true, id: user.id, email: user.email, role: user.role });
+}</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     SECTIONS 23-27 — FRONTEND
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header">
+  <div class="num">Sections 23 – 27</div>
+  <h2>Frontend — Key Pages &amp; Components</h2>
+  <p class="desc">Next.js App Router client components. TanStack Query for server state. Role-aware shell with live AI provider status.</p>
+</div>
+
+<div class="file-header"><span class="path">src/components/DemoBanner.tsx</span><span class="lang">TSX</span></div>
+<pre>"use client";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, X } from "lucide-react";
+import { useState } from "react";
+
+export function DemoBanner() {
+  const [dismissed, setDismissed] = useState(false);
+  const { data } = useQuery&lt;{ demo: boolean; keys_exhausted: boolean }&gt;({
+    queryKey: ["meta"],
+    queryFn: async () =&gt; (await fetch("/api/meta", { cache: "no-store" })).json(),
+    staleTime: 30_000, refetchInterval: 60_000,
+  });
+
+  if (!data?.demo || dismissed) return null;
+
+  return (
+    &lt;div className="flex items-start gap-3 px-4 py-2.5 text-sm"
+      style={{ background: data.keys_exhausted ? "var(--color-error,#dc2626)" : "var(--color-warning,#f59e0b)", color: "#fff" }}&gt;
+      &lt;AlertTriangle size={16} className="mt-0.5 shrink-0" /&gt;
+      &lt;p className="flex-1 leading-snug"&gt;
+        {data.keys_exhausted
+          ? &lt;&gt;&lt;strong&gt;Paid API key limit reached.&lt;/strong&gt; All AI analysis is simulated. Add your own API key to resume.&lt;/&gt;
+          : &lt;&gt;&lt;strong&gt;Demo mode active.&lt;/strong&gt; AI can&apos;t actually check your data — no API key available. Fill in one to run real AI analysis.&lt;/&gt;}
+      &lt;/p&gt;
+      &lt;button onClick={() =&gt; setDismissed(true)} className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100"&gt;
+        &lt;X size={15} /&gt;
+      &lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+
+<div class="file-header"><span class="path">src/app/(app)/settings/page.tsx  (AI Settings UI)</span><span class="lang">TSX</span></div>
+<pre>"use client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+<span class="comment">// Provider picker (auto/openai/gemini/demo), masked API key inputs,
+// status cards showing key presence + exhaustion, save to /api/settings/llm</span>
+
+type Provider = "auto" | "openai" | "gemini" | "demo";
+
+export default function SettingsPage() {
+  const qc = useQueryClient();
+  const { data } = useQuery&lt;LlmStatus&gt;({ queryKey: ["settings-llm"], queryFn: () =&gt; fetch("/api/settings/llm").then(r =&gt; r.json()) });
+  const [provider, setProvider] = useState&lt;Provider | null&gt;(null);
+  const [openaiKey, setOpenaiKey] = useState(""); const [geminiKey, setGeminiKey] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: async () =&gt; {
+      const body: Record&lt;string, string&gt; = { provider: provider ?? data?.provider ?? "auto" };
+      if (openaiKey) body.openai_key = openaiKey;
+      if (geminiKey) body.gemini_key = geminiKey;
+      return fetch("/api/settings/llm", { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body) }).then(r =&gt; r.json());
+    },
+    onSuccess: () =&gt; {
+      toast.success("Settings saved");
+      qc.invalidateQueries({ queryKey: ["settings-llm"] });
+      qc.invalidateQueries({ queryKey: ["meta"] });
+    },
+  });
+  <span class="comment">// Renders: status cards, provider radio group, key inputs, save button</span>
+  <span class="comment">// See: src/app/(app)/settings/page.tsx for full render code</span>
+}</pre>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     FINAL PAGE — ENV VARS & DEPLOYMENT
+════════════════════════════════════════════════════════════════════ -->
+<div class="section-header" style="page-break-before: always;">
+  <div class="num">Deployment</div>
+  <h2>Environment Variables &amp; Deployment</h2>
+  <p class="desc">Zero-config deployment on Vercel. Set these environment variables in Vercel project settings.</p>
+</div>
+
+<div class="arch-page">
+  <table class="arch-table">
+    <tr><th>Variable</th><th>Description</th><th>Example</th></tr>
+    <tr><td><code>DATABASE_URL</code></td><td>Supabase pgbouncer pooler (port 6543) for queries</td><td>postgresql://...@...supabase.com:6543/postgres?pgbouncer=true</td></tr>
+    <tr><td><code>DIRECT_URL</code></td><td>Supabase direct connection (port 5432) for Prisma migrations</td><td>postgresql://...@...supabase.com:5432/postgres</td></tr>
+    <tr><td><code>AUTH_SECRET</code></td><td>NextAuth JWT signing secret (32+ random chars)</td><td>T-3bQtc0JrUktxE8bH_Zv7s5KwpMBl...</td></tr>
+    <tr><td><code>NEXTAUTH_URL</code></td><td>Canonical URL of the deployment</td><td>https://labmind-bitx.vercel.app/</td></tr>
+    <tr><td><code>LLM_PROVIDER</code></td><td>Provider mode: auto / openai / gemini / demo</td><td>auto</td></tr>
+    <tr><td><code>OPENAI_API_KEY</code></td><td>OpenAI API key (primary, gpt-4o-mini)</td><td>sk-proj-...</td></tr>
+    <tr><td><code>GEMINI_API_KEY</code></td><td>Google AI Studio key (fallback, gemini-1.5-flash)</td><td>AIzaSy...</td></tr>
+    <tr><td><code>DEMO_MODE</code></td><td>Force demo mode regardless of keys</td><td>false</td></tr>
+  </table>
+
+  <div style="margin-top:20px; background:#f0fdf4; border:1px solid #86efac; border-radius:12px; padding:16px;">
+    <h4 style="color:#16a34a; font-size:12px; font-weight:700; margin-bottom:8px;">Build Command</h4>
+    <code style="font-family:monospace; font-size:11px;">prisma generate &amp;&amp; next build</code>
+    <p style="margin-top:6px; font-size:10px; color:#5b6b7d;">The <code>prisma generate</code> step ensures the Prisma Client is compiled before Next.js build on Vercel.</p>
+  </div>
+
+  <div style="margin-top:16px; background:#eff6ff; border:1px solid #93c5fd; border-radius:12px; padding:16px;">
+    <h4 style="color:#1d4ed8; font-size:12px; font-weight:700; margin-bottom:8px;">Repository</h4>
+    <p style="font-size:12px; font-family:monospace; color:#0f2942;">https://github.com/Harshit-Makraria/labmind</p>
+    <p style="margin-top:6px; font-size:10px; color:#5b6b7d;">Latest commit: <strong>44922bf</strong> — fix: landing page encoding + LLM waterfall + UI settings</p>
+  </div>
+</div>
+
+<div style="text-align:center; padding:32px; color:#94a3b8; font-size:10px; border-top: 1px solid #e2e8f0; margin-top:40px;">
+  LabMind &middot; Team BitX &middot; Capgemini Exceller Agentify Buildathon 2026
+</div>
+
+</body>
+</html>
