@@ -102,7 +102,7 @@ app.post("/protocol/parse", async (c) => {
   const t0 = Date.now();
   const exp = getExperiment(body.experiment_id);
   const protocol = await parseProtocol(body.pdf_base64, body.experiment_id);
-  upsertSession({ sessionId: body.session_id, studentName: body.student_name ?? "You (live)", experimentId: exp.id, experimentName: protocol.experiment_name, totalSteps: protocol.steps.length });
+  upsertSession({ sessionId: body.session_id, studentName: body.student_name, experimentId: exp.id, experimentName: protocol.experiment_name, totalSteps: protocol.steps.length });
   recordTrace("protocol_parser", body.pdf_base64 ? "PDF upload" : `library: ${exp.id}`, `${protocol.experiment_name} · ${protocol.steps.length} steps`, Date.now() - t0);
   return c.json({ ...protocol, session_id: body.session_id, experiment_id: exp.id, theoretical: exp.theoretical });
 });
@@ -245,6 +245,32 @@ app.get("/dashboard/sessions", async (c) => {
   return c.json(live);
 });
 
+app.get("/instructor/sessions/:code/students", async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const rows = await db.labSession.findMany({
+    where: { instructorCode: code },
+    orderBy: { updatedAt: "desc" },
+  });
+  return c.json(rows.map((row) => {
+    const steps = (row.steps as unknown as { flagged?: boolean; manual_override?: boolean }[]) ?? [];
+    return {
+      session_id: row.id,
+      student_name: row.studentName,
+      experiment_id: row.experimentId,
+      experiment_name: row.experimentName,
+      current_step: row.currentStep,
+      total_steps: row.totalSteps,
+      status: row.status,
+      last_vision_pass: row.lastVisionPass,
+      deviation_percent: row.deviationPercent,
+      safety_alert_count: row.safetyAlertCount,
+      flagged_step_count: steps.filter((x) => x.flagged).length,
+      override_count: steps.filter((x) => x.manual_override).length,
+      updated_at: row.updatedAt.toISOString(),
+    };
+  }));
+});
+
 app.get("/dashboard/verify", (c) => {
   const passcode = c.req.query("passcode") ?? "";
   return c.json({ ok: passcode === getConfig().instructorPasscode });
@@ -285,6 +311,11 @@ app.post("/agent/chat", async (c) => {
 
 // ─── Instructor sessions ─────────────────────────────────────────────
 app.get("/instructor/sessions", async (c) => c.json(await listInstructorSessions()));
+app.get("/instructor/sessions/:code", async (c) => {
+  const sess = await getInstructorSession(c.req.param("code"));
+  if (!sess) return c.json({ error: "Not found" }, 404);
+  return c.json(sess);
+});
 
 app.post("/instructor/sessions", async (c) => {
   const body = await c.req.json();
