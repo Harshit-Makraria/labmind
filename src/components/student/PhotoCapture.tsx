@@ -199,7 +199,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
                     type: "manual_override",
                     step_number: step.step_number,
                     value: Number.parseFloat(overrideValue),
-                    note: "Student-entered after 2 failed vision checks",
+                    note: "Student-entered after 2 failed vision checks — send for instructor verification",
                   })
                 }
               >

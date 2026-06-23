@@ -202,19 +202,48 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
 // ─── Main export ─────────────────────────────────────────────────────
 
 export async function checkVision(req: VisionCheckRequest): Promise<VisionResult> {
-  // Always use demo heuristics in demo mode
-  if (effectiveDemo()) return demoCheckVision(req);
+  const isDemo = effectiveDemo();
+  const imageKb = Math.round((req.image_base64?.length ?? 0) * 0.75 / 1024);
+
+  console.log(`\n${"─".repeat(60)}`);
+  console.log(`[VISION] ▶ checkVision called`);
+  console.log(`[VISION]   session_id    : ${req.session_id ?? "none"}`);
+  console.log(`[VISION]   experiment_id : ${req.experiment_id ?? "none"}`);
+  console.log(`[VISION]   step_number   : ${req.step_number}`);
+  console.log(`[VISION]   expected.type : ${req.expected?.type}`);
+  console.log(`[VISION]   expected.value: ${req.expected?.expected_value ?? "N/A"}`);
+  console.log(`[VISION]   image size    : ~${imageKb} KB`);
+  console.log(`[VISION]   mode          : ${isDemo ? "DEMO (no real LLM call)" : "LIVE (GPT-4o)"}`);
+
+  if (isDemo) {
+    console.log(`[VISION] ⚠  Running in DEMO mode — returning deterministic heuristic result`);
+    const r = await demoCheckVision(req);
+    console.log(`[VISION] ← DEMO result: pass=${r.pass} confidence=${r.confidence} reading=${r.reading}`);
+    console.log(`${"─".repeat(60)}\n`);
+    return r;
+  }
 
   const img = req.image_base64 ?? "";
   if (!img) {
+    console.warn(`[VISION] ✗ No image provided — returning fail`);
+    console.log(`${"─".repeat(60)}\n`);
     return { reading: null, confidence: 0, pass: false, deviation: null, message: "No image provided.", notes: "Please capture a photo before submitting.", attempts: 1, manual_override_available: false };
   }
 
+  const prompt = buildUserPrompt(req);
+  console.log(`[VISION]   prompt snippet: ${prompt.slice(0, 120).replace(/\n/g, " ")}…`);
+  console.log(`[VISION] ⏳ Calling GPT-4o vision API…`);
+
+  const t0 = Date.now();
   try {
     const raw = await completeVision(SYSTEM_PROMPT, {
       imageBase64: img.includes(",") ? img.split(",", 2)[1] ?? img : img,
-      prompt: buildUserPrompt(req),
+      prompt,
     });
+
+    const latency = Date.now() - t0;
+    console.log(`[VISION] ✓ GPT-4o responded in ${latency}ms`);
+    console.log(`[VISION]   raw response : ${raw.slice(0, 300)}`);
 
     const parsed = JSON.parse(raw) as {
       reading?: number | null;
@@ -225,7 +254,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       notes?: string;
     };
 
-    return {
+    const result: VisionResult = {
       reading: parsed.reading ?? null,
       confidence: round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5))),
       pass: parsed.pass ?? false,
@@ -236,8 +265,18 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       attempts: 1,
       manual_override_available: false,
     };
+
+    console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation}`);
+    console.log(`[VISION]   message       : ${result.message}`);
+    console.log(`${"─".repeat(60)}\n`);
+    return result;
   } catch (err) {
-    console.error("[vision] LLM call failed, falling back to demo:", err);
-    return demoCheckVision(req);
+    const latency = Date.now() - t0;
+    console.error(`[VISION] ✗ GPT-4o call FAILED after ${latency}ms:`, err);
+    console.warn(`[VISION]   Falling back to DEMO heuristic`);
+    const r = await demoCheckVision(req);
+    console.log(`[VISION] ← FALLBACK result: pass=${r.pass} confidence=${r.confidence}`);
+    console.log(`${"─".repeat(60)}\n`);
+    return r;
   }
 }

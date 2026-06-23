@@ -139,22 +139,26 @@ app.post("/safety/check", async (c) => {
 app.post("/vision/check", async (c) => {
   const body = await c.req.json<VisionCheckRequest>();
   const t0 = Date.now();
+  console.log(`\n[ROUTE /vision/check] ▶ session=${body.session_id} step=${body.step_number} type=${body.expected?.type}`);
   const result = await checkVision(body);
+  const latency = Date.now() - t0;
   let attempts = 1;
   if (body.session_id) attempts = recordVision(body.session_id, body.step_number, result.reading, result.pass);
   result.attempts = attempts;
   result.manual_override_available = !result.pass && attempts >= 2;
+  console.log(`[ROUTE /vision/check] ← pass=${result.pass} conf=${result.confidence} attempts=${attempts} override_available=${result.manual_override_available} latency=${latency}ms`);
   if (result.manual_override_available && body.session_id) {
+    console.log(`[ROUTE /vision/check] ⚠  Manual override UNLOCKED for session=${body.session_id} step=${body.step_number} after ${attempts} failed attempts`);
     logAgentDecision({
       id: crypto.randomUUID(), session_id: body.session_id,
       trigger: `Vision failed ${attempts}× on step ${body.step_number}`,
       plan: "Two low-confidence captures → offer manual override and log for instructor.",
       tools: [{ tool: "analyze_image", input: `step ${body.step_number}`, output: `conf ${result.confidence}, fail` }],
       outcome: "Manual override unlocked; instructor notified.",
-      provider: providerLabel(), latency_ms: Date.now() - t0, at: new Date().toISOString(),
+      provider: providerLabel(), latency_ms: latency, at: new Date().toISOString(),
     });
   }
-  recordTrace("vision_tool", `step ${body.step_number} · ${body.expected?.type}`, result.pass ? `PASS reading=${result.reading ?? "—"}` : `RETRY (attempt ${attempts})`, Date.now() - t0, result.confidence);
+  recordTrace("vision_tool", `step ${body.step_number} · ${body.expected?.type}`, result.pass ? `PASS reading=${result.reading ?? "—"}` : `RETRY (attempt ${attempts})`, latency, result.confidence);
   return c.json(result);
 });
 
@@ -200,16 +204,22 @@ app.post("/session/action", async (c) => {
       setCurrentStep(session_id, action.step_number + 1);
       break;
     }
-    case "manual_override":
-        // If this lab is attached to an instructor session that requires verification,
-        // create a verification entry and do NOT complete the step until an instructor reviews it.
+    case "manual_override": {
+        console.log(`\n[ROUTE /session/action] ▶ manual_override session=${session_id} step=${action.step_number} value=${action.value}`);
+        // Only route to instructor verification if:
+        // 1. The instructor session has require_verification = true, AND
+        // 2. The student actually had vision failures (note contains "failed vision checks")
+        //    — we don't queue skips or "can't capture" bypasses.
+        const isFromFailedVision = (action.note ?? "").toLowerCase().includes("failed vision");
+        console.log(`[ROUTE /session/action]   is_from_failed_vision=${isFromFailedVision} note="${action.note}"`);
         try {
           const labRow = await db.labSession.findUnique({ where: { id: session_id }, select: { instructorCode: true, studentName: true, experimentId: true } });
           const instrCode = labRow?.instructorCode;
-          if (instrCode) {
+          console.log(`[ROUTE /session/action]   instructorCode=${instrCode ?? "none"}`);
+          if (instrCode && isFromFailedVision) {
             const instr = await getInstructorSession(instrCode);
+            console.log(`[ROUTE /session/action]   require_verification=${instr?.require_verification ?? false}`);
             if (instr?.require_verification) {
-              // queue a verification entry and return pending status
               const entry = await submitVerification({
                 session_id: session_id,
                 student_name: labRow?.studentName ?? "Student",
@@ -217,21 +227,26 @@ app.post("/session/action", async (c) => {
                 image_base64: "",
                 ai_reading: action.value ?? null,
                 ai_confidence: 0,
-                ai_message: `Manual override requested: ${action.note ?? ""}`,
+                ai_message: `Manual override after failed vision checks: ${action.note ?? ""}`,
                 submitted_at: new Date().toISOString(),
               });
-              // record an observability trace for AUR if applicable
+              console.log(`[ROUTE /session/action] ✓ Queued for instructor verification: entry_id=${entry.id}`);
               if (labRow?.experimentId === "aur-experiment") recordTrace("aur_audit", `manual_override queued`, `step ${action.step_number} queued id=${entry.id}`, 0, null);
               return c.json({ ok: false, pending_verification: true, verification_id: entry.id, message: "Manual override queued for instructor verification" });
             }
           }
+          if (instrCode && !isFromFailedVision) {
+            console.log(`[ROUTE /session/action]   Skipping verification queue — not from a failed vision check`);
+          }
         } catch (e) {
-          // fall through to immediate override on error
+          console.error(`[ROUTE /session/action] ✗ Error checking verification requirement:`, e);
+          // fall through to immediate override
         }
-
         manualOverride(session_id, action.step_number, action.value, action.note);
         setCurrentStep(session_id, action.step_number + 1);
-      break;
+        console.log(`[ROUTE /session/action] ✓ Manual override applied immediately`);
+        break;
+      }
     case "set_student_name":
       setStudentName(session_id, action.name);
       break;
@@ -446,9 +461,16 @@ app.post("/instructor/verify", async (c) => {
 // ─── Student join ─────────────────────────────────────────────────────
 app.post("/student/join", async (c) => {
   const { code, student_name, session_id } = await c.req.json();
+  console.log(`\n[ROUTE /student/join] ▶ code=${code} student="${student_name}" session_id=${session_id}`);
   const instrSession = await getInstructorSession(code);
-  if (!instrSession) return c.json({ error: "Invalid session code" }, 404);
-  if (instrSession.status === "ended") return c.json({ error: "This session has been ended by the instructor" }, 403);
+  if (!instrSession) {
+    console.warn(`[ROUTE /student/join] ✗ Invalid code: ${code}`);
+    return c.json({ error: "Invalid session code" }, 404);
+  }
+  if (instrSession.status === "ended") {
+    console.warn(`[ROUTE /student/join] ✗ Session ${code} is ended`);
+    return c.json({ error: "This session has been ended by the instructor" }, 403);
+  }
   const exp = getExperiment(instrSession.experiment_id);
   // Atomically upsert the labSession with instructorCode in one DB call so the
   // foreign key is always set — avoids the race where a fire-and-forget persist
@@ -465,8 +487,8 @@ app.post("/student/join", async (c) => {
     },
     update: { instructorCode: code.toUpperCase(), studentName: student_name ?? "Student" },
   });
-  // Also seed the in-memory cache so subsequent requests don't hit DB
   upsertSession({ sessionId: session_id, studentName: student_name ?? "Student", experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length });
+  console.log(`[ROUTE /student/join] ✓ Joined: session_id=${session_id} experiment=${exp.id} name="${student_name}" instructor_code=${code}`);
   return c.json({ ok: true, experiment_id: exp.id, experiment_name: exp.name, session_name: instrSession.session_name });
 });
 

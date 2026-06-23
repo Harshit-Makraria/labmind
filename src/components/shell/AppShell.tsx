@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
-  Bot, ClipboardList, FlaskConical, LayoutDashboard, Loader2,
+  AlertTriangle, Bot, ClipboardList, FlaskConical, LayoutDashboard, Loader2,
   type LucideIcon, Menu, Microscope, PanelLeft,
   PanelLeftClose, PlusCircle, Settings, Users,
 } from "lucide-react";
@@ -59,6 +59,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const [collapsed, setCollapsed] = useState(false);
 
+  const { data: meta } = useQuery({
+    queryKey: ["meta"],
+    queryFn: async () => (await fetch("/api/meta", { cache: "no-store" })).json() as Promise<{ provider: string; demo: boolean; keys_exhausted: boolean }>,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const isDemo = meta?.demo || meta?.keys_exhausted;
+
   // Redirect to login if not authenticated
   if (status === "loading") {
     return (
@@ -94,6 +102,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3">
+          {isDemo && (
+            <div className={`mb-1 flex items-center gap-2 rounded-lg bg-yellow-400/20 px-3 py-2 ${collapsed ? "justify-center" : ""}`}>
+              <AlertTriangle size={15} className="shrink-0 text-yellow-300" />
+              {!collapsed && <span className="text-xs font-bold text-yellow-300">DEMO MODE</span>}
+            </div>
+          )}
           {nav.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href} className="nav-item" data-active={isActive(pathname, href)}>
               <Icon size={19} className="shrink-0" />
@@ -136,7 +150,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="main-pane">
-        <Topbar title={titleFor(pathname)} role={role} />
+        <Topbar title={titleFor(pathname)} role={role} meta={meta} />
         <DemoBanner />
         <div className="content">{children}</div>
       </div>
@@ -146,13 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Topbar({ title, role }: { title: string; role: Role }) {
-  const { data } = useQuery({
-    queryKey: ["meta"],
-    queryFn: async () => (await fetch("/api/meta", { cache: "no-store" })).json() as Promise<{ provider: string; demo: boolean; keys_exhausted: boolean }>,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  });
+function Topbar({ title, role, meta }: { title: string; role: Role; meta?: { provider: string; demo: boolean; keys_exhausted: boolean } }) {
   return (
     <header className="glass-topbar flex items-center justify-between px-4 py-3 md:px-6">
       <div className="flex items-center gap-3">
@@ -168,10 +176,10 @@ function Topbar({ title, role }: { title: string; role: Role }) {
           </span>
         )}
         <span className="chip bg-[var(--color-brand)]/10 text-[var(--color-brand)]">
-          <Bot size={13} /> {data?.provider ?? "…"}
+          <Bot size={13} /> {meta?.provider ?? "…"}
         </span>
-        {data?.keys_exhausted && <span className="chip bg-red-500 text-white">KEY LIMIT</span>}
-        {data?.demo && !data.keys_exhausted && <span className="chip bg-[var(--color-warning)] text-white">DEMO</span>}
+        {meta?.keys_exhausted && <span className="chip bg-red-500 text-white">KEY LIMIT</span>}
+        {meta?.demo && !meta.keys_exhausted && <span className="chip bg-[var(--color-warning)] text-white">DEMO</span>}
       </div>
     </header>
   );
