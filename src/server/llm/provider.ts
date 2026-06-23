@@ -72,16 +72,7 @@ export async function completeVision(system: string, input: VisionInput): Promis
       ],
     }]);
   }
-  return openaiChat(c, [
-    { role: "system", content: system },
-    {
-      role: "user",
-      content: [
-        { type: "text", text: input.prompt },
-        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${input.imageBase64}` } },
-      ],
-    },
-  ]);
+  return openaiVisionChat(c, system, input);
 }
 
 export async function completeWithTools(
@@ -121,16 +112,7 @@ async function autoCompleteJSON(c: LabmindConfig, system: string, user: string):
 async function autoCompleteVision(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
   if (c.openaiApiKey && !isExhausted("openai")) {
     try {
-      return await openaiChat(c, [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: input.prompt },
-            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${input.imageBase64}` } },
-          ],
-        },
-      ]);
+      return await openaiVisionChat(c, system, input);
     } catch (e) {
       if (isQuotaErr(e)) { markExhausted("openai"); }
       else throw e;
@@ -270,6 +252,40 @@ function geminiTextOf(data: GeminiResponse): string {
 }
 
 // ─── OpenAI / Azure ──────────────────────────────────────────────────
+
+// Vision-specific OpenAI call: uses gpt-4o (not gpt-4o-mini) for accuracy,
+// avoids response_format json_object which can conflict with image inputs on some versions.
+async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
+  const { url, headers, isAzure } = openaiEndpoint(c);
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: isAzure ? undefined : "gpt-4o",
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: input.prompt },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${input.imageBase64}`, detail: "high" } },
+          ],
+        },
+      ],
+      temperature: 0.1,
+      max_tokens: 512,
+    }),
+  });
+  const body = await res.text();
+  if (!res.ok) {
+    if (isQuotaError(res.status, body)) throw new Error(`QUOTA:${res.status}: ${body}`);
+    throw new Error(`OpenAI vision error ${res.status}: ${body}`);
+  }
+  const data = JSON.parse(body) as { choices: { message: { content: string } }[] };
+  const raw = data.choices[0]?.message?.content ?? "";
+  // Strip markdown code fences if model wraps response in ```json ... ```
+  return raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+}
 
 async function openaiChat(c: LabmindConfig, messages: unknown[]): Promise<string> {
   const { url, headers, isAzure } = openaiEndpoint(c);

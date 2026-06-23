@@ -438,8 +438,23 @@ app.post("/student/join", async (c) => {
   if (!instrSession) return c.json({ error: "Invalid session code" }, 404);
   if (instrSession.status === "ended") return c.json({ error: "This session has been ended by the instructor" }, 403);
   const exp = getExperiment(instrSession.experiment_id);
+  // Atomically upsert the labSession with instructorCode in one DB call so the
+  // foreign key is always set — avoids the race where a fire-and-forget persist
+  // hadn't committed yet when addStudentToSession tried to UPDATE the same row.
+  await db.labSession.upsert({
+    where: { id: session_id },
+    create: {
+      id: session_id,
+      studentName: student_name ?? "Student",
+      experimentId: exp.id,
+      experimentName: exp.name,
+      totalSteps: exp.protocol.steps.length,
+      instructorCode: code.toUpperCase(),
+    },
+    update: { instructorCode: code.toUpperCase(), studentName: student_name ?? "Student" },
+  });
+  // Also seed the in-memory cache so subsequent requests don't hit DB
   upsertSession({ sessionId: session_id, studentName: student_name ?? "Student", experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length });
-  await addStudentToSession(code, session_id);
   return c.json({ ok: true, experiment_id: exp.id, experiment_name: exp.name, session_name: instrSession.session_name });
 });
 
