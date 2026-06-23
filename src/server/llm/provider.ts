@@ -272,8 +272,8 @@ async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionI
           ],
         },
       ],
-      temperature: 0.1,
-      max_tokens: 512,
+      temperature: 0.1,   // low temperature for precise numeric readings
+      max_tokens: 800,    // enough for full JSON + reasoning notes
     }),
   });
   const body = await res.text();

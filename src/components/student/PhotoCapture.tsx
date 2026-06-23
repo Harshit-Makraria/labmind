@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { Camera, CheckCircle2, Loader2, PencilLine, RefreshCw, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, Clock, Loader2, PencilLine, RefreshCw, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
@@ -46,10 +46,15 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
       }),
     onSuccess: (res) => {
       setResult(res);
-      if (res.pass) {
-        toast.success("Verified ✓");
+      if (res.verification_status === "auto_verified") {
+        toast.success("✅ High confidence — auto verified!");
+        finish({ type: "complete_step", step_number: step!.step_number });
+      } else if (res.verification_status === "needs_review") {
+        toast("🔍 Sent for instructor review — you can continue", { duration: 5000 });
+        // Allow student to continue even while review is pending
         finish({ type: "complete_step", step_number: step!.step_number });
       }
+      // "failed" → stay on page, show retry / manual override UI
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -99,7 +104,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
     setResult(null);
   }
 
-  const canOverride = result?.manual_override_available;
+  const canOverride = result?.manual_override_available && result?.verification_status === "failed";
 
   return (
     <div className="mx-auto max-w-xl py-1">
@@ -131,11 +136,40 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
         )}
         <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
 
-        {result && !result.pass && (
-          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-warning)]/12 p-3 text-sm text-[var(--color-navy)]">
-            <XCircle size={18} className="mt-0.5 shrink-0 text-[var(--color-warning)]" />
+        {/* AUTO VERIFIED — high confidence pass */}
+        {result?.verification_status === "auto_verified" && (
+          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-accent)]/12 p-3 text-sm">
+            <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
             <div>
-              <p className="font-semibold">{result.message}</p>
+              <p className="font-bold text-[var(--color-accent)]">Auto verified ✓</p>
+              <p className="text-[var(--color-navy)]">{result.message}</p>
+              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+                Confidence {(result.confidence * 100).toFixed(0)}% — high enough to auto-pass
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* NEEDS REVIEW — low confidence, queued for instructor */}
+        {result?.verification_status === "needs_review" && (
+          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-warning)]/12 p-3 text-sm">
+            <Clock size={18} className="mt-0.5 shrink-0 text-[var(--color-warning)]" />
+            <div>
+              <p className="font-bold text-[var(--color-warning)]">Sent for instructor review</p>
+              <p className="text-[var(--color-navy)]">{result.message}</p>
+              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+                Confidence {(result.confidence * 100).toFixed(0)}% — below threshold, instructor will verify. You can continue.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* FAILED — bad pass, retry or manual override */}
+        {result?.verification_status === "failed" && (
+          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-red-500/10 p-3 text-sm text-[var(--color-navy)]">
+            <XCircle size={18} className="mt-0.5 shrink-0 text-red-500" />
+            <div>
+              <p className="font-semibold text-red-600">{result.message}</p>
               <p className="mt-0.5 text-[var(--color-muted)]">{result.notes}</p>
               <p className="mt-0.5 text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% · attempt {result.attempts}
@@ -144,13 +178,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
           </div>
         )}
 
-        {result?.pass && (
-          <div className="flex items-center gap-2 rounded-[var(--radius-btn)] bg-[var(--color-accent)]/12 p-3 text-sm font-semibold text-[var(--color-accent)]">
-            <CheckCircle2 size={18} /> {result.message}
-          </div>
-        )}
-
-        {preview && !result?.pass && (
+        {preview && (!result || result.verification_status === "failed") && (
           <div className="flex gap-2">
             <Button
               variant="ghost"

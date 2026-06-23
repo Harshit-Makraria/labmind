@@ -3,11 +3,18 @@
  * Falls back to demo heuristics when in DEMO_MODE or when no API key is available.
  */
 import "server-only";
-import type { VisionCheckRequest, VisionResult, VisionExpected } from "@/lib/types";
+import type { VisionCheckRequest, VisionResult, VisionExpected, VisionVerificationStatus } from "@/lib/types";
+import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo } from "@/server/config";
 import { completeVision } from "@/server/llm/provider";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function verificationStatus(pass: boolean, confidence: number): VisionVerificationStatus {
+  if (pass && confidence >= VISION_HIGH_CONFIDENCE) return "auto_verified";
+  if (confidence < VISION_HIGH_CONFIDENCE) return "needs_review";
+  return "failed";
+}
 
 // ─── Experiment-aware system prompts ────────────────────────────────
 
@@ -175,12 +182,12 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
 
   const clearEnough = metrics && metrics.width >= 320 && metrics.height >= 240 && metrics.contrast >= 12;
   if (!clearEnough) {
-    return { reading: null, confidence: 0.45, pass: false, deviation: null, message: "Image too small or unclear to analyse.", notes: "Hold steady, fill the frame, use good lighting.", attempts: 1, manual_override_available: false };
+    return { reading: null, confidence: 0.45, pass: false, deviation: null, message: "Image too small or unclear to analyse.", notes: "Hold steady, fill the frame, use good lighting.", attempts: 1, manual_override_available: false, verification_status: "needs_review" as VisionVerificationStatus };
   }
 
   const confidence = round2(0.84 + (h % 6) / 100);
   if (expected.type === "colour_change") {
-    return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false };
+    return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_status: verificationStatus(true, confidence) };
   }
 
   const UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", colour_change: "" };
@@ -195,7 +202,7 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
     reading, confidence, pass, deviation,
     message: pass ? `Reading ${reading} ${unit} — within tolerance. ✓` : `Reading ${reading} ${unit} — outside tolerance. Re-check.`,
     notes: `Expected ${ev} ${unit}, got ${reading} ${unit} (Δ ${deviation} ${unit}). Demo mode.`,
-    attempts: 1, manual_override_available: false,
+    attempts: 1, manual_override_available: false, verification_status: verificationStatus(pass, confidence),
   };
 }
 
@@ -227,7 +234,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
   if (!img) {
     console.warn(`[VISION] ✗ No image provided — returning fail`);
     console.log(`${"─".repeat(60)}\n`);
-    return { reading: null, confidence: 0, pass: false, deviation: null, message: "No image provided.", notes: "Please capture a photo before submitting.", attempts: 1, manual_override_available: false };
+    return { reading: null, confidence: 0, pass: false, deviation: null, message: "No image provided.", notes: "Please capture a photo before submitting.", attempts: 1, manual_override_available: false, verification_status: "failed" as VisionVerificationStatus };
   }
 
   const prompt = buildUserPrompt(req);
@@ -254,16 +261,19 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       notes?: string;
     };
 
+    const conf = round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5)));
+    const pass = parsed.pass ?? false;
     const result: VisionResult = {
       reading: parsed.reading ?? null,
-      confidence: round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5))),
-      pass: parsed.pass ?? false,
+      confidence: conf,
+      pass,
       deviation: parsed.deviation ?? null,
       message: parsed.message ?? "Analysis complete.",
       notes: parsed.notes ?? "",
       // attempts and manual_override_available are set by the API route after recordVision()
       attempts: 1,
       manual_override_available: false,
+      verification_status: verificationStatus(pass, conf),
     };
 
     console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation}`);

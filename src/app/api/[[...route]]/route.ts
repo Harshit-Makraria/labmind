@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { handle } from "hono/vercel";
 
 import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SessionAction, VisionCheckRequest } from "@/lib/types";
+import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
 import { DEFAULT_EXPERIMENT_ID, getExperiment, listExperiments } from "@/server/experiments";
 import { recordTrace } from "@/server/observability/trace";
@@ -139,26 +140,72 @@ app.post("/safety/check", async (c) => {
 app.post("/vision/check", async (c) => {
   const body = await c.req.json<VisionCheckRequest>();
   const t0 = Date.now();
-  console.log(`\n[ROUTE /vision/check] ▶ session=${body.session_id} step=${body.step_number} type=${body.expected?.type}`);
+  console.log(`\n[ROUTE /vision/check] ▶ session=${body.session_id} step=${body.step_number} type=${body.expected?.type} exp_value=${body.expected?.expected_value}`);
+
   const result = await checkVision(body);
   const latency = Date.now() - t0;
+
   let attempts = 1;
   if (body.session_id) attempts = recordVision(body.session_id, body.step_number, result.reading, result.pass);
   result.attempts = attempts;
   result.manual_override_available = !result.pass && attempts >= 2;
-  console.log(`[ROUTE /vision/check] ← pass=${result.pass} conf=${result.confidence} attempts=${attempts} override_available=${result.manual_override_available} latency=${latency}ms`);
-  if (result.manual_override_available && body.session_id) {
-    console.log(`[ROUTE /vision/check] ⚠  Manual override UNLOCKED for session=${body.session_id} step=${body.step_number} after ${attempts} failed attempts`);
+
+  // ─── Confidence-based routing ──────────────────────────────────────
+  // HIGH confidence (≥ 0.82) + pass  →  auto_verified  →  step completes immediately
+  // LOW confidence (< 0.82)          →  needs_review   →  auto-queue for instructor
+  // fail                             →  failed         →  retry / manual override after 2×
+  const isHighConf = result.confidence >= VISION_HIGH_CONFIDENCE;
+  const isLowConf  = !isHighConf;
+
+  if (result.pass && isHighConf) {
+    result.verification_status = "auto_verified";
+    console.log(`[ROUTE /vision/check] ✅ AUTO VERIFIED — conf=${result.confidence} ≥ ${VISION_HIGH_CONFIDENCE} reading=${result.reading}`);
+  } else if (isLowConf && body.session_id) {
+    result.verification_status = "needs_review";
+    console.log(`[ROUTE /vision/check] 🔍 LOW CONFIDENCE (${result.confidence} < ${VISION_HIGH_CONFIDENCE}) — auto-queuing for instructor review`);
+    // Auto-submit to instructor verification queue
+    try {
+      const labRow = await db.labSession.findUnique({
+        where: { id: body.session_id },
+        select: { instructorCode: true, studentName: true },
+      });
+      if (labRow?.instructorCode) {
+        const entry = await submitVerification({
+          session_id: body.session_id,
+          student_name: labRow.studentName,
+          step_number: body.step_number,
+          image_base64: body.image_base64,
+          ai_reading: result.reading,
+          ai_confidence: result.confidence,
+          ai_message: `Low confidence (${(result.confidence * 100).toFixed(0)}%): ${result.message}`,
+          submitted_at: new Date().toISOString(),
+        });
+        console.log(`[ROUTE /vision/check] ✓ Queued for instructor review: entry_id=${entry.id} instructorCode=${labRow.instructorCode}`);
+      } else {
+        console.log(`[ROUTE /vision/check]   No instructorCode on session — skipping verification queue`);
+      }
+    } catch (e) {
+      console.error(`[ROUTE /vision/check] ✗ Failed to queue for review:`, e);
+    }
+  } else {
+    result.verification_status = "failed";
+    console.log(`[ROUTE /vision/check] ✗ FAILED — pass=${result.pass} conf=${result.confidence} attempt=${attempts}`);
+  }
+
+  if (result.manual_override_available) {
+    console.log(`[ROUTE /vision/check] ⚠  Manual override UNLOCKED after ${attempts} failed attempts`);
     logAgentDecision({
       id: crypto.randomUUID(), session_id: body.session_id,
       trigger: `Vision failed ${attempts}× on step ${body.step_number}`,
       plan: "Two low-confidence captures → offer manual override and log for instructor.",
-      tools: [{ tool: "analyze_image", input: `step ${body.step_number}`, output: `conf ${result.confidence}, fail` }],
-      outcome: "Manual override unlocked; instructor notified.",
+      tools: [{ tool: "analyze_image", input: `step ${body.step_number}`, output: `conf=${result.confidence} pass=${result.pass}` }],
+      outcome: "Manual override unlocked.",
       provider: providerLabel(), latency_ms: latency, at: new Date().toISOString(),
     });
   }
-  recordTrace("vision_tool", `step ${body.step_number} · ${body.expected?.type}`, result.pass ? `PASS reading=${result.reading ?? "—"}` : `RETRY (attempt ${attempts})`, latency, result.confidence);
+
+  console.log(`[ROUTE /vision/check] ← status=${result.verification_status} pass=${result.pass} conf=${result.confidence} reading=${result.reading} latency=${latency}ms`);
+  recordTrace("vision_tool", `step ${body.step_number} · ${body.expected?.type}`, `${result.verification_status} conf=${result.confidence} reading=${result.reading ?? "—"}`, latency, result.confidence);
   return c.json(result);
 });
 

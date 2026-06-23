@@ -83,6 +83,14 @@ export interface VisionCheckRequest {
   experiment_id?: string;
 }
 
+/** Confidence thresholds for verification routing. */
+export const VISION_HIGH_CONFIDENCE = 0.82;
+
+export type VisionVerificationStatus =
+  | "auto_verified"   // confidence >= 0.82 + pass — step completes immediately
+  | "needs_review"    // confidence < 0.82 — queued for instructor, student continues
+  | "failed";         // pass=false — retry or manual override
+
 export interface VisionResult {
   reading: number | null;
   confidence: number;
@@ -94,6 +102,8 @@ export interface VisionResult {
   attempts: number;
   /** True once attempts >= 2 and still failing — UI offers manual entry. */
   manual_override_available: boolean;
+  /** Routing decision based on confidence threshold. */
+  verification_status: VisionVerificationStatus;
 }
 
 // ─── Safety engine ──────────────────────────────────────────────────
