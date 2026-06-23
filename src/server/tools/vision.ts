@@ -4,16 +4,17 @@
  */
 import "server-only";
 import type { VisionCheckRequest, VisionResult, VisionExpected, VisionVerificationStatus } from "@/lib/types";
-import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
+import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo } from "@/server/config";
 import { completeVision } from "@/server/llm/provider";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function verificationStatus(pass: boolean, confidence: number): VisionVerificationStatus {
-  if (pass && confidence >= VISION_HIGH_CONFIDENCE) return "auto_verified";
-  if (confidence < VISION_HIGH_CONFIDENCE) return "needs_review";
-  return "failed";
+  if (confidence < VISION_LOW_CONFIDENCE) return "retake";           // < 40%: image too poor
+  if (pass && confidence >= VISION_HIGH_CONFIDENCE) return "auto_verified"; // ≥ 82%: auto-pass
+  if (confidence < VISION_HIGH_CONFIDENCE) return "needs_review";    // 40–82%: instructor
+  return "failed";                                                    // good image but wrong reading
 }
 
 // ─── Experiment-aware system prompts ────────────────────────────────

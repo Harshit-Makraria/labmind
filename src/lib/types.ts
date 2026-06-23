@@ -84,12 +84,14 @@ export interface VisionCheckRequest {
 }
 
 /** Confidence thresholds for verification routing. */
-export const VISION_HIGH_CONFIDENCE = 0.82;
+export const VISION_HIGH_CONFIDENCE = 0.82;  // above → auto-verify
+export const VISION_LOW_CONFIDENCE  = 0.40;  // below → ask student to retake
 
 export type VisionVerificationStatus =
   | "auto_verified"   // confidence >= 0.82 + pass — step completes immediately
-  | "needs_review"    // confidence < 0.82 — queued for instructor, student continues
-  | "failed";         // pass=false — retry or manual override
+  | "needs_review"    // confidence 0.40–0.82 — queued for instructor, student continues
+  | "retake"          // confidence < 0.40 — image too poor, ask student to retake
+  | "failed";         // pass=false (good image) — retry or manual override after 2×
 
 export interface VisionResult {
   reading: number | null;

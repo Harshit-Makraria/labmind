@@ -51,8 +51,12 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
         finish({ type: "complete_step", step_number: step!.step_number });
       } else if (res.verification_status === "needs_review") {
         toast("🔍 Sent for instructor review — you can continue", { duration: 5000 });
-        // Allow student to continue even while review is pending
         finish({ type: "complete_step", step_number: step!.step_number });
+      } else if (res.verification_status === "retake") {
+        // Image quality too poor — clear it so student must retake
+        toast.warning("Image too unclear — please retake the photo", { duration: 6000 });
+        setPreview(null);
+        setBase64(null);
       }
       // "failed" → stay on page, show retry / manual override UI
     },
@@ -135,6 +139,20 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
           </button>
         )}
         <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
+
+        {/* RETAKE — image too poor (< 40% confidence) */}
+        {result?.verification_status === "retake" && (
+          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-danger)]/10 p-3 text-sm">
+            <Camera size={18} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
+            <div>
+              <p className="font-bold text-[var(--color-danger)]">Image too unclear — please retake</p>
+              <p className="text-[var(--color-navy)]">{result.message}</p>
+              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+                Confidence {(result.confidence * 100).toFixed(0)}% — too low to process. Check lighting, focus, and angle.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* AUTO VERIFIED — high confidence pass */}
         {result?.verification_status === "auto_verified" && (

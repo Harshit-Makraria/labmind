@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { handle } from "hono/vercel";
 
 import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SessionAction, VisionCheckRequest } from "@/lib/types";
-import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
+import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
 import { DEFAULT_EXPERIMENT_ID, getExperiment, listExperiments } from "@/server/experiments";
 import { recordTrace } from "@/server/observability/trace";
@@ -150,20 +150,23 @@ app.post("/vision/check", async (c) => {
   result.attempts = attempts;
   result.manual_override_available = !result.pass && attempts >= 2;
 
-  // ─── Confidence-based routing ──────────────────────────────────────
-  // HIGH confidence (≥ 0.82) + pass  →  auto_verified  →  step completes immediately
-  // LOW confidence (< 0.82)          →  needs_review   →  auto-queue for instructor
-  // fail                             →  failed         →  retry / manual override after 2×
+  // ─── Confidence-based routing ─────────────────────────────────────
+  // < 40%          →  retake        →  image too poor, ask student to retake (no instructor queue)
+  // 40–82%         →  needs_review  →  auto-queue for instructor, student continues
+  // ≥ 82% + pass   →  auto_verified →  step completes immediately
+  // ≥ 82% + fail   →  failed        →  retry / manual override after 2×
+  const isTooLow   = result.confidence < VISION_LOW_CONFIDENCE;
   const isHighConf = result.confidence >= VISION_HIGH_CONFIDENCE;
-  const isLowConf  = !isHighConf;
 
-  if (result.pass && isHighConf) {
+  if (isTooLow) {
+    result.verification_status = "retake";
+    console.log(`[ROUTE /vision/check] 📷 RETAKE — conf=${result.confidence} < ${VISION_LOW_CONFIDENCE} (image too poor, not queued)`);
+  } else if (result.pass && isHighConf) {
     result.verification_status = "auto_verified";
     console.log(`[ROUTE /vision/check] ✅ AUTO VERIFIED — conf=${result.confidence} ≥ ${VISION_HIGH_CONFIDENCE} reading=${result.reading}`);
-  } else if (isLowConf && body.session_id) {
+  } else if (!isHighConf && body.session_id) {
     result.verification_status = "needs_review";
-    console.log(`[ROUTE /vision/check] 🔍 LOW CONFIDENCE (${result.confidence} < ${VISION_HIGH_CONFIDENCE}) — auto-queuing for instructor review`);
-    // Auto-submit to instructor verification queue
+    console.log(`[ROUTE /vision/check] 🔍 NEEDS REVIEW — conf=${result.confidence} (40–82%) — auto-queuing for instructor`);
     try {
       const labRow = await db.labSession.findUnique({
         where: { id: body.session_id },
@@ -177,19 +180,19 @@ app.post("/vision/check", async (c) => {
           image_base64: body.image_base64,
           ai_reading: result.reading,
           ai_confidence: result.confidence,
-          ai_message: `Low confidence (${(result.confidence * 100).toFixed(0)}%): ${result.message}`,
+          ai_message: `Confidence ${(result.confidence * 100).toFixed(0)}% (needs review): ${result.message}`,
           submitted_at: new Date().toISOString(),
         });
-        console.log(`[ROUTE /vision/check] ✓ Queued for instructor review: entry_id=${entry.id} instructorCode=${labRow.instructorCode}`);
+        console.log(`[ROUTE /vision/check] ✓ Queued for instructor review: entry_id=${entry.id}`);
       } else {
-        console.log(`[ROUTE /vision/check]   No instructorCode on session — skipping verification queue`);
+        console.log(`[ROUTE /vision/check]   No instructorCode — skipping verification queue`);
       }
     } catch (e) {
       console.error(`[ROUTE /vision/check] ✗ Failed to queue for review:`, e);
     }
   } else {
     result.verification_status = "failed";
-    console.log(`[ROUTE /vision/check] ✗ FAILED — pass=${result.pass} conf=${result.confidence} attempt=${attempts}`);
+    console.log(`[ROUTE /vision/check] ✗ FAILED — good image but wrong reading, pass=${result.pass} conf=${result.confidence} attempt=${attempts}`);
   }
 
   if (result.manual_override_available) {
