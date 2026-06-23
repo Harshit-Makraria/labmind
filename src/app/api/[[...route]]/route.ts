@@ -474,7 +474,8 @@ app.get("/instructor/sessions/:code/students/export", async (c) => {
 
 // ─── Verification queue ──────────────────────────────────────────────
 // Require instructor passcode on all verify endpoints to prevent unauthenticated access
-function checkInstructorPasscode(c: Parameters<Parameters<typeof app.use>[0]>[0]): boolean {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function checkInstructorPasscode(c: { req: { header: (k: string) => string | undefined; query: (k: string) => string | undefined } }): boolean {
   const passcode = c.req.header("x-instructor-passcode") ?? c.req.query("passcode") ?? "";
   return passcode === getConfig().instructorPasscode;
 }
