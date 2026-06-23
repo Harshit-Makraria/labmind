@@ -88,11 +88,12 @@ app.get("/settings/llm", async (c) => {
 });
 
 app.patch("/settings/llm", async (c) => {
-  const body = await c.req.json<{ provider?: string; openai_key?: string; gemini_key?: string }>();
+  const body = await c.req.json<{ provider?: string; openai_key?: string; gemini_key?: string; anthropic_key?: string }>();
   const updated = await saveRuntimeSettings({
     provider: body.provider as Parameters<typeof saveRuntimeSettings>[0]["provider"],
     openaiKey: body.openai_key,
     geminiKey: body.gemini_key,
+    anthropicKey: body.anthropic_key,
   });
   return c.json({ ok: true, provider: updated.provider });
 });

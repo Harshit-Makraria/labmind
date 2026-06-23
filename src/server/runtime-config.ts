@@ -11,12 +11,14 @@ export interface LlmRuntimeSettings {
   provider: LlmProvider;
   openaiKey?: string;
   geminiKey?: string;
+  anthropicKey?: string;
 }
 
 const KEYS = {
   provider: "llm.provider",
   openaiKey: "llm.openai_key",
   geminiKey: "llm.gemini_key",
+  anthropicKey: "llm.anthropic_key",
 } as const;
 
 let _cache: LlmRuntimeSettings | null = null;
@@ -32,6 +34,7 @@ export async function loadRuntimeSettings(): Promise<LlmRuntimeSettings> {
     provider: (map[KEYS.provider] as LlmProvider) || "auto",
     openaiKey: map[KEYS.openaiKey] || undefined,
     geminiKey: map[KEYS.geminiKey] || undefined,
+    anthropicKey: map[KEYS.anthropicKey] || undefined,
   };
   _loaded = true;
   return _cache;
@@ -47,6 +50,7 @@ export async function saveRuntimeSettings(patch: Partial<LlmRuntimeSettings>): P
   if (patch.provider !== undefined) updates.push({ key: KEYS.provider, value: patch.provider });
   if (patch.openaiKey !== undefined) updates.push({ key: KEYS.openaiKey, value: patch.openaiKey });
   if (patch.geminiKey !== undefined) updates.push({ key: KEYS.geminiKey, value: patch.geminiKey });
+  if (patch.anthropicKey !== undefined) updates.push({ key: KEYS.anthropicKey, value: patch.anthropicKey });
 
   await Promise.all(
     updates.map((u) =>
@@ -68,8 +72,8 @@ export async function getLlmStatus() {
   const settings = await loadRuntimeSettings();
   return {
     provider: settings.provider,
+    hasClaudeKey: !!(settings.anthropicKey ?? process.env.ANTHROPIC_API_KEY),
     hasOpenaiKey: !!(settings.openaiKey ?? process.env.OPENAI_API_KEY),
     hasGeminiKey: !!(settings.geminiKey ?? process.env.GEMINI_API_KEY),
-    // Never expose actual key values to the client
   };
 }

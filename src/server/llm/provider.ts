@@ -89,12 +89,23 @@ export async function completeWithTools(
 
 // ─── Auto waterfall ──────────────────────────────────────────────────
 
+// Auto waterfall order: Claude → GPT-4o → Gemini → demo
+// Claude is default; GPT-4o kicks in if Claude key is exhausted.
+
 async function autoCompleteJSON(c: LabmindConfig, system: string, user: string): Promise<string> {
+  if (c.anthropicApiKey && !isExhausted("anthropic")) {
+    try {
+      return await anthropicChat(c, system, [{ role: "user", content: user }]);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[LLM] Claude quota hit — falling back to GPT-4o"); }
+      else throw e;
+    }
+  }
   if (c.openaiApiKey && !isExhausted("openai")) {
     try {
       return await openaiChat(c, [{ role: "system", content: system }, { role: "user", content: user }]);
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); }
+      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[LLM] GPT-4o quota hit — falling back to Gemini"); }
       else throw e;
     }
   }
@@ -110,11 +121,25 @@ async function autoCompleteJSON(c: LabmindConfig, system: string, user: string):
 }
 
 async function autoCompleteVision(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
+  if (c.anthropicApiKey && !isExhausted("anthropic")) {
+    try {
+      return await anthropicChat(c, system, [{
+        role: "user",
+        content: [
+          { type: "text", text: input.prompt },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.imageBase64 } },
+        ],
+      }]);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[VISION] Claude quota hit — falling back to GPT-4o"); }
+      else throw e;
+    }
+  }
   if (c.openaiApiKey && !isExhausted("openai")) {
     try {
       return await openaiVisionChat(c, system, input);
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); }
+      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[VISION] GPT-4o quota hit — falling back to Gemini"); }
       else throw e;
     }
   }
@@ -135,11 +160,19 @@ async function autoCompleteWithTools(
   messages: { role: "user" | "assistant" | "tool"; content: string; toolName?: string }[],
   tools: ToolSchema[],
 ): Promise<ToolTurnResult> {
+  if (c.anthropicApiKey && !isExhausted("anthropic")) {
+    try {
+      return await anthropicTools(c, system, messages, tools);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[LLM] Claude quota hit — falling back to GPT-4o"); }
+      else throw e;
+    }
+  }
   if (c.openaiApiKey && !isExhausted("openai")) {
     try {
       return await openaiTools(c, system, messages, tools);
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); }
+      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[LLM] GPT-4o quota hit — falling back to Gemini"); }
       else throw e;
     }
   }
@@ -405,9 +438,15 @@ async function anthropicChat(c: LabmindConfig, system: string, messages: unknown
     headers: anthropicHeaders(c),
     body: JSON.stringify({ model: c.anthropicModel, max_tokens: 1500, system, messages }),
   });
-  if (!res.ok) throw new Error(`Anthropic error ${res.status}: ${await res.text()}`);
-  const data = (await res.json()) as { content: { type: string; text?: string }[] };
-  return data.content.map((b) => b.text ?? "").join("");
+  const body = await res.text();
+  if (!res.ok) {
+    if (isQuotaError(res.status, body)) throw new Error(`QUOTA:${res.status}: ${body}`);
+    throw new Error(`Anthropic error ${res.status}: ${body}`);
+  }
+  const data = JSON.parse(body) as { content: { type: string; text?: string }[] };
+  // Strip markdown fences in case Claude wraps JSON in ```json ... ```
+  const raw = data.content.map((b) => b.text ?? "").join("");
+  return raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
 }
 
 async function anthropicTools(

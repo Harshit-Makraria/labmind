@@ -5,10 +5,11 @@ import { Bot, CheckCircle2, Eye, EyeOff, FlaskConical, Key, Save, XCircle } from
 import { useState } from "react";
 import { toast } from "sonner";
 
-type Provider = "auto" | "openai" | "gemini" | "demo";
+type Provider = "auto" | "claude" | "openai" | "gemini" | "demo";
 
 interface LlmStatus {
   provider: Provider;
+  hasClaudeKey: boolean;
   hasOpenaiKey: boolean;
   hasGeminiKey: boolean;
   keys_exhausted: boolean;
@@ -19,12 +20,17 @@ const PROVIDERS: { value: Provider; label: string; description: string }[] = [
   {
     value: "auto",
     label: "Auto (Recommended)",
-    description: "Tries OpenAI first, falls back to Gemini, then demo mode if both exhausted.",
+    description: "Claude first → GPT-4o if Claude exhausted → Gemini → demo. Best reliability.",
+  },
+  {
+    value: "claude",
+    label: "Claude only",
+    description: "Uses claude-sonnet-4-6 exclusively. Best vision accuracy for lab images.",
   },
   {
     value: "openai",
-    label: "OpenAI only",
-    description: "Uses gpt-4o-mini exclusively. Falls back to demo if key is missing or exhausted.",
+    label: "GPT-4o only",
+    description: "Uses gpt-4o exclusively. Falls back to demo if key is missing or exhausted.",
   },
   {
     value: "gemini",
@@ -46,8 +52,10 @@ export default function SettingsPage() {
   });
 
   const [provider, setProvider] = useState<Provider | null>(null);
+  const [claudeKey, setClaudeKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
+  const [showClaude, setShowClaude] = useState(false);
   const [showOpenai, setShowOpenai] = useState(false);
   const [showGemini, setShowGemini] = useState(false);
 
@@ -56,6 +64,7 @@ export default function SettingsPage() {
   const mutation = useMutation({
     mutationFn: async () => {
       const body: Record<string, string> = { provider: effectiveProvider };
+      if (claudeKey) body.anthropic_key = claudeKey;
       if (openaiKey) body.openai_key = openaiKey;
       if (geminiKey) body.gemini_key = geminiKey;
       const res = await fetch("/api/settings/llm", {
@@ -68,9 +77,9 @@ export default function SettingsPage() {
     },
     onSuccess: (data) => {
       toast.success(`Saved — provider: ${data.provider}`);
-      // Refetch both queries immediately (bypass staleTime)
       qc.invalidateQueries({ queryKey: ["settings-llm"] });
       qc.refetchQueries({ queryKey: ["meta"] });
+      setClaudeKey("");
       setOpenaiKey("");
       setGeminiKey("");
     },
@@ -95,16 +104,24 @@ export default function SettingsPage() {
       </div>
 
       {/* Status cards */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <StatusCard
-          label="OpenAI (gpt-4o-mini)"
-          hasKey={data?.hasOpenaiKey ?? false}
-          exhausted={!!data?.exhausted_providers?.openai}
+          label="Claude (sonnet-4-6)"
+          hasKey={data?.hasClaudeKey ?? false}
+          exhausted={!!data?.exhausted_providers?.anthropic}
+          badge="Default"
         />
         <StatusCard
-          label="Gemini (gemini-1.5-flash)"
+          label="GPT-4o"
+          hasKey={data?.hasOpenaiKey ?? false}
+          exhausted={!!data?.exhausted_providers?.openai}
+          badge="Fallback 1"
+        />
+        <StatusCard
+          label="Gemini (1.5-flash)"
           hasKey={data?.hasGeminiKey ?? false}
           exhausted={!!data?.exhausted_providers?.gemini}
+          badge="Fallback 2"
         />
       </div>
 
@@ -156,10 +173,34 @@ export default function SettingsPage() {
             Leave blank to keep the existing key. Keys are stored encrypted in the database and never sent to the client.
           </p>
 
+          {(effectiveProvider === "auto" || effectiveProvider === "claude") && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
+                Anthropic API Key <span className="text-xs text-[var(--color-accent)] font-semibold">(Default)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showClaude ? "text" : "password"}
+                  value={claudeKey}
+                  onChange={(e) => setClaudeKey(e.target.value)}
+                  placeholder={data?.hasClaudeKey ? "•••••••• (key already set)" : "sk-ant-..."}
+                  className="input-base w-full pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowClaude((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
+                >
+                  {showClaude ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+          )}
+
           {(effectiveProvider === "auto" || effectiveProvider === "openai") && (
             <div>
               <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
-                OpenAI API Key
+                OpenAI API Key <span className="text-xs text-[var(--color-muted)]">(Fallback 1)</span>
               </label>
               <div className="relative">
                 <input
@@ -183,7 +224,7 @@ export default function SettingsPage() {
           {(effectiveProvider === "auto" || effectiveProvider === "gemini") && (
             <div>
               <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
-                Gemini API Key
+                Gemini API Key <span className="text-xs text-[var(--color-muted)]">(Fallback 2)</span>
               </label>
               <div className="relative">
                 <input
@@ -251,10 +292,12 @@ function StatusCard({
   label,
   hasKey,
   exhausted,
+  badge,
 }: {
   label: string;
   hasKey: boolean;
   exhausted: boolean;
+  badge?: string;
 }) {
   const color = exhausted ? "text-red-600" : hasKey ? "text-green-600" : "text-[var(--color-muted)]";
   const bg = exhausted ? "bg-red-50 border-red-200" : hasKey ? "bg-green-50 border-green-200" : "bg-[var(--color-surface)] border-[var(--color-border)]";
@@ -262,8 +305,11 @@ function StatusCard({
   const status = exhausted ? "Quota exceeded" : hasKey ? "Key configured" : "No key";
 
   return (
-    <div className={`rounded-xl border px-4 py-3 ${bg}`}>
-      <p className="text-xs font-medium text-[var(--color-muted)]">{label}</p>
+    <div className={`rounded-xl border px-3 py-3 ${bg}`}>
+      <div className="flex items-center justify-between gap-1">
+        <p className="text-xs font-medium text-[var(--color-muted)] truncate">{label}</p>
+        {badge && <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-[var(--color-brand)]/70">{badge}</span>}
+      </div>
       <div className={`mt-1 flex items-center gap-1.5 text-sm font-semibold ${color}`}>
         <Icon size={14} /> {status}
       </div>

@@ -35,7 +35,7 @@ export function getConfig(): LabmindConfig {
     geminiModel: env.GEMINI_MODEL ?? "gemini-1.5-flash",
     openaiApiKey: rt?.openaiKey ?? env.OPENAI_API_KEY,
     openaiModel: env.OPENAI_MODEL ?? "gpt-4o-mini",
-    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    anthropicApiKey: rt?.anthropicKey ?? env.ANTHROPIC_API_KEY,
     anthropicModel: env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
     azureEndpoint: env.AZURE_OPENAI_ENDPOINT,
     azureApiKey: env.AZURE_OPENAI_API_KEY,
@@ -49,11 +49,15 @@ export function getConfig(): LabmindConfig {
 export function effectiveDemo(c: LabmindConfig = getConfig()): boolean {
   if (c.demoMode || c.llmProvider === "demo") return true;
   if (c.llmProvider === "auto") {
+    const hasClaude = !!c.anthropicApiKey;
     const hasOpenai = !!c.openaiApiKey;
     const hasGemini = !!c.geminiApiKey;
-    if (!hasOpenai && !hasGemini) return true;
-    // Both keys present but both exhausted → demo
-    if (anyExhausted() && hasOpenai && hasGemini && isExhausted("openai") && isExhausted("gemini")) return true;
+    if (!hasClaude && !hasOpenai && !hasGemini) return true;
+    // All available keys exhausted → demo
+    const claudeOk  = hasClaude  && !isExhausted("anthropic");
+    const openaiOk  = hasOpenai  && !isExhausted("openai");
+    const geminiOk  = hasGemini  && !isExhausted("gemini");
+    if (!claudeOk && !openaiOk && !geminiOk) return true;
     return false;
   }
   if (c.llmProvider === "gemini" && !c.geminiApiKey) return true;
@@ -68,8 +72,8 @@ export function providerLabel(): string {
   const c = getConfig();
   if (effectiveDemo(c)) return "demo";
   if (c.llmProvider === "auto") {
-    // show which will be tried first
-    if (c.openaiApiKey) return "openai";
+    if (c.anthropicApiKey && !isExhausted("anthropic")) return "claude";
+    if (c.openaiApiKey    && !isExhausted("openai"))    return "openai";
     return "gemini";
   }
   return c.llmProvider;
