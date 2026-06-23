@@ -232,6 +232,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       deviation: parsed.deviation ?? null,
       message: parsed.message ?? "Analysis complete.",
       notes: parsed.notes ?? "",
+      // attempts and manual_override_available are set by the API route after recordVision()
       attempts: 1,
       manual_override_available: false,
     };

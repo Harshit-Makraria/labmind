@@ -5,6 +5,7 @@
  */
 import "server-only";
 import { getRuntimeSettings } from "@/server/runtime-config";
+import { anyExhausted, isExhausted } from "@/server/llm/provider-state";
 
 export type LlmProvider = "demo" | "auto" | "gemini" | "openai" | "azure" | "claude";
 
@@ -44,12 +45,16 @@ export function getConfig(): LabmindConfig {
   };
 }
 
-/** Demo if explicitly toggled, or no keys are available for the chosen provider. */
+/** Demo if explicitly toggled, no keys available, or all active providers are exhausted. */
 export function effectiveDemo(c: LabmindConfig = getConfig()): boolean {
   if (c.demoMode || c.llmProvider === "demo") return true;
   if (c.llmProvider === "auto") {
-    // auto mode: demo only if both keys are missing
-    return !c.openaiApiKey && !c.geminiApiKey;
+    const hasOpenai = !!c.openaiApiKey;
+    const hasGemini = !!c.geminiApiKey;
+    if (!hasOpenai && !hasGemini) return true;
+    // Both keys present but both exhausted → demo
+    if (anyExhausted() && hasOpenai && hasGemini && isExhausted("openai") && isExhausted("gemini")) return true;
+    return false;
   }
   if (c.llmProvider === "gemini" && !c.geminiApiKey) return true;
   if (c.llmProvider === "openai" && !c.openaiApiKey) return true;

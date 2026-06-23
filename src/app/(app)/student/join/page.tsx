@@ -22,7 +22,9 @@ function JoinInner() {
     if (!clean) return;
     setLoading(true);
     try {
-      const studentName = authSession?.user?.name ?? authSession?.user?.email ?? localStorage.getItem("labmind:name") ?? "Student";
+      const storedName = localStorage.getItem("labmind:name");
+      const studentName = authSession?.user?.name ?? authSession?.user?.email ?? storedName
+        ?? `Student-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
       const sessionId = newSessionId();
 
       const res = await fetch("/api/student/join", {

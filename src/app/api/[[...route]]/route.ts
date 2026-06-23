@@ -181,9 +181,9 @@ app.get("/session/:sessionId", async (c) => {
 app.post("/session/action", async (c) => {
   const { session_id, action } = await c.req.json<{ session_id: string; action: SessionAction }>();
   if (!session_id) return c.json({ error: "session_id required" }, 400);
-  await hydrateSession(session_id);
   const session = await hydrateSession(session_id);
-  const experimentId = session?.experimentId;
+  if (!session) return c.json({ error: "Session not found" }, 404);
+  const experimentId = session.experimentId;
   switch (action.type) {
     case "complete_step":
       completeStep(session_id, action.step_number);
@@ -358,11 +358,13 @@ app.post("/lab/:sessionId/prelab", async (c) => {
   const { sessionId } = c.req.param();
   const { answers } = await c.req.json<{ answers: Record<string, number> }>();
   const session = await hydrateSession(sessionId);
+  // Idempotency: if already passed, don't re-score (prevent gaming by re-submitting)
+  const existing = await db.labSession.findUnique({ where: { id: sessionId }, select: { prelabPassed: true } });
+  if (existing?.prelabPassed) return c.json({ error: "Pre-lab already completed", ok: false }, 400);
   const exp = getExperiment(session?.experimentId);
   const quiz = await generatePrelabQuiz(exp.protocol, exp.id);
   const result = scorePrelabQuiz(quiz, answers);
-  // Persist result
-  await db.labSession.update({ where: { id: sessionId }, data: { prelabScore: result.score, prelabPassed: result.passed } }).catch(() => {});
+  await db.labSession.update({ where: { id: sessionId }, data: { prelabScore: result.score, prelabPassed: result.passed } });
   return c.json(result);
 });
 
@@ -383,7 +385,7 @@ app.get("/lab/:sessionId/benchmark", async (c) => {
     where: { experimentId: row.experimentId, deviationPercent: { not: null }, id: { not: sessionId } },
     select: { deviationPercent: true },
   });
-  const deviations = peers.map((p) => p.deviationPercent!).filter((d) => d !== null);
+  const deviations = peers.map((p) => p.deviationPercent).filter((d): d is number => d !== null && !Number.isNaN(d));
   const classAvg = deviations.length ? Math.round(deviations.reduce((a, b) => a + b, 0) / deviations.length * 10) / 10 : null;
   const your = row.deviationPercent;
   const better = your !== null ? deviations.filter((d) => d > your).length : 0;
@@ -395,24 +397,34 @@ app.get("/lab/:sessionId/benchmark", async (c) => {
 app.get("/instructor/sessions/:code/students/export", async (c) => {
   const code = c.req.param("code").toUpperCase();
   const rows = await db.labSession.findMany({ where: { instructorCode: code }, orderBy: { updatedAt: "desc" } });
+  const csv = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [
-    "Student Name,Experiment,Steps Completed,Total Steps,Status,Deviation %,Safety Alerts,Overrides,Pre-lab Score,Pre-lab Passed,Updated At",
+    ["Student Name","Experiment","Steps Completed","Total Steps","Status","Deviation %","Safety Alerts","Overrides","Pre-lab Score","Pre-lab Passed","Updated At"].map(csv).join(","),
     ...rows.map((r) => {
-      const steps = (r.steps as { manual_override?: boolean }[]) ?? [];
+      let steps: { manual_override?: boolean }[] = [];
+      try { steps = (r.steps as { manual_override?: boolean }[]) ?? []; } catch { steps = []; }
       const overrides = steps.filter((s) => s.manual_override).length;
-      return [r.studentName, r.experimentName, r.currentStep, r.totalSteps, r.status, r.deviationPercent ?? "", r.safetyAlertCount, overrides, r.prelabScore ?? "", r.prelabPassed ?? "", r.updatedAt.toISOString()].join(",");
+      return [r.studentName, r.experimentName, r.currentStep, r.totalSteps, r.status, r.deviationPercent ?? "", r.safetyAlertCount, overrides, r.prelabScore ?? "", r.prelabPassed ?? "", r.updatedAt.toISOString()].map(csv).join(",");
     }),
   ].join("\n");
   return new Response(lines, { headers: { "Content-Type": "text/csv", "Content-Disposition": `attachment; filename="session-${code}.csv"` } });
 });
 
 // ─── Verification queue ──────────────────────────────────────────────
+// Require instructor passcode on all verify endpoints to prevent unauthenticated access
+function checkInstructorPasscode(c: Parameters<Parameters<typeof app.use>[0]>[0]): boolean {
+  const passcode = c.req.header("x-instructor-passcode") ?? c.req.query("passcode") ?? "";
+  return passcode === getConfig().instructorPasscode;
+}
+
 app.get("/instructor/verify", async (c) => {
+  if (!checkInstructorPasscode(c)) return c.json({ error: "Unauthorized" }, 401);
   const status = c.req.query("status") as "pending" | "approved" | "rejected" | undefined;
   return c.json(await listVerifications(status));
 });
 
 app.post("/instructor/verify", async (c) => {
+  if (!checkInstructorPasscode(c)) return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   if (body.action === "resolve") {
     await resolveVerification(body.id, body.status, body.comment);

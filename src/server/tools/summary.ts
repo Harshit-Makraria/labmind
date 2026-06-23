@@ -106,9 +106,11 @@ export async function buildReport(sessionId: string): Promise<LabReport> {
     date,
     aim: s?.experimentId === "acid-base-titration"
       ? "To determine the concentration of HCl by titration against standard NaOH."
-      : s?.experimentId === "gel-electrophoresis"
+      : s?.experimentId === "dna-gel-electrophoresis"
       ? "To estimate the size of an unknown DNA fragment by gel electrophoresis."
-      : "To measure the rate of the iodine clock reaction at room temperature.",
+      : s?.experimentId === "iodine-clock"
+      ? "To measure the rate of the iodine clock reaction at room temperature."
+      : `To complete the assigned experiment: ${s?.experimentName ?? "Lab Experiment"}.`,
     apparatus: s?.experimentId === "acid-base-titration"
       ? ["50 mL burette", "25 mL pipette", "Conical flask (250 mL)", "White tile", "Phenolphthalein indicator", "Retort stand and clamp"]
       : s?.experimentId === "gel-electrophoresis"

@@ -63,49 +63,33 @@ function blankStep(n: number): StepRecord {
 
 // ─── Prisma persistence helpers ─────────────────────────────────────
 
+function buildPersistPayload(s: StoredSession) {
+  return {
+    studentName: s.studentName,
+    experimentId: s.experimentId,
+    experimentName: s.experimentName,
+    currentStep: s.currentStep,
+    totalSteps: s.totalSteps,
+    status: s.status,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    reagentHistory: s.reagentHistory as any,
+    lastVisionPass: s.lastVisionPass,
+    deviationPercent: s.deviationPercent,
+    safetyAlertCount: s.safetyAlertCount,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    steps: s.steps as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    safetyLog: s.safetyLog as any,
+    notes: s.notes,
+  };
+}
+
+/** Fire-and-forget persist — safe for non-critical mutations (step completions, reagents). */
 function persist(s: StoredSession) {
+  const payload = buildPersistPayload(s);
   db.labSession
-    .upsert({
-      where: { id: s.sessionId },
-      create: {
-        id: s.sessionId,
-        studentName: s.studentName,
-        experimentId: s.experimentId,
-        experimentName: s.experimentName,
-        currentStep: s.currentStep,
-        totalSteps: s.totalSteps,
-        status: s.status,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        reagentHistory: s.reagentHistory as any,
-        lastVisionPass: s.lastVisionPass,
-        deviationPercent: s.deviationPercent,
-        safetyAlertCount: s.safetyAlertCount,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        steps: s.steps as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        safetyLog: s.safetyLog as any,
-        notes: s.notes,
-      },
-      update: {
-        studentName: s.studentName,
-        experimentId: s.experimentId,
-        experimentName: s.experimentName,
-        currentStep: s.currentStep,
-        totalSteps: s.totalSteps,
-        status: s.status,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        reagentHistory: s.reagentHistory as any,
-        lastVisionPass: s.lastVisionPass,
-        deviationPercent: s.deviationPercent,
-        safetyAlertCount: s.safetyAlertCount,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        steps: s.steps as any,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        safetyLog: s.safetyLog as any,
-        notes: s.notes,
-      },
-    })
-    .catch((e) => console.error("[session-store] persist failed:", e));
+    .upsert({ where: { id: s.sessionId }, create: { id: s.sessionId, ...payload }, update: payload })
+    .catch((e) => console.error("[session-store] persist failed — data may be lost on restart:", e));
 }
 
 /** Hydrate a session from DB into the in-memory cache. */
