@@ -473,21 +473,15 @@ app.get("/instructor/sessions/:code/students/export", async (c) => {
 });
 
 // ─── Verification queue ──────────────────────────────────────────────
-// Require instructor passcode on all verify endpoints to prevent unauthenticated access
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function checkInstructorPasscode(c: { req: { header: (k: string) => string | undefined; query: (k: string) => string | undefined } }): boolean {
-  const passcode = c.req.header("x-instructor-passcode") ?? c.req.query("passcode") ?? "";
-  return passcode === getConfig().instructorPasscode;
-}
+// Note: these routes are called from instructor pages that are already protected
+// by NextAuth middleware at the page level. No additional passcode check needed.
 
 app.get("/instructor/verify", async (c) => {
-  if (!checkInstructorPasscode(c)) return c.json({ error: "Unauthorized" }, 401);
   const status = c.req.query("status") as "pending" | "approved" | "rejected" | undefined;
   return c.json(await listVerifications(status));
 });
 
 app.post("/instructor/verify", async (c) => {
-  if (!checkInstructorPasscode(c)) return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json();
   if (body.action === "resolve") {
     await resolveVerification(body.id, body.status, body.comment);

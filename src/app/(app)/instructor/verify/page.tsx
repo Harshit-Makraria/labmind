@@ -10,23 +10,31 @@ export default function VerifyPage() {
   const qc = useQueryClient();
   const { data } = useQuery<VerificationEntry[]>({
     queryKey: ["verifications"],
-    queryFn: async () => (await fetch("/api/instructor/verify", { cache: "no-store" })).json(),
+    queryFn: async () => {
+      const res = await fetch("/api/instructor/verify", { cache: "no-store" });
+      if (!res.ok) throw new Error(`Failed to load verifications: ${res.status}`);
+      const json = await res.json();
+      return Array.isArray(json) ? json : [];
+    },
     refetchInterval: 4000,
   });
 
   const resolve = useMutation({
     mutationFn: async ({ id, status, comment }: { id: string; status: "approved" | "rejected"; comment?: string }) => {
-      await fetch("/api/instructor/verify", {
+      const res = await fetch("/api/instructor/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "resolve", id, status, comment }),
       });
+      if (!res.ok) throw new Error("Failed to save decision");
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["verifications"] }); toast.success("Decision saved"); },
+    onError: (e) => toast.error((e as Error).message),
   });
 
-  const pending = (data ?? []).filter((v) => v.status === "pending");
-  const resolved = (data ?? []).filter((v) => v.status !== "pending");
+  const entries = Array.isArray(data) ? data : [];
+  const pending = entries.filter((v) => v.status === "pending");
+  const resolved = entries.filter((v) => v.status !== "pending");
 
   return (
     <div className="space-y-5">
@@ -102,14 +110,23 @@ function VerifyCard({ v, onResolve }: { v: VerificationEntry; onResolve: (s: "ap
         {isLow && <p className="mt-1 text-xs font-semibold text-[var(--color-warning)]">Low confidence — instructor review required</p>}
       </div>
 
-      {/* Simulated image placeholder */}
-      <div className="flex h-40 items-center justify-center rounded-xl border-2 border-dashed border-black/15 bg-[var(--color-surface)] text-[var(--color-muted)]">
-        <div className="text-center text-sm">
-          <p className="text-2xl">📷</p>
-          <p>Student photo</p>
-          <p className="text-xs">(Step {v.step_number} capture)</p>
+      {/* Student photo */}
+      {v.image_base64 ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`}
+          alt={`Step ${v.step_number} capture`}
+          className="max-h-64 w-full rounded-xl object-contain bg-black/5"
+        />
+      ) : (
+        <div className="flex h-40 items-center justify-center rounded-xl border-2 border-dashed border-black/15 bg-[var(--color-surface)] text-[var(--color-muted)]">
+          <div className="text-center text-sm">
+            <p className="text-2xl">📷</p>
+            <p>No image captured</p>
+            <p className="text-xs">(manual override — step {v.step_number})</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Comment box */}
       {showComment && (
