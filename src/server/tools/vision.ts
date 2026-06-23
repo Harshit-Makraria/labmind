@@ -198,6 +198,7 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const jitter = (((h % 11) - 5) / 10) * tol;
   const reading = round2(ev + jitter);
   const deviation = round2(reading - ev);
+  // Always derive pass from math — never from a heuristic bool
   const pass = Math.abs(deviation) <= tol;
   return {
     reading, confidence, pass, deviation,
@@ -263,12 +264,39 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     };
 
     const conf = round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5)));
-    const pass = parsed.pass ?? false;
+    const reading = parsed.reading ?? null;
+
+    // ── Server-side pass validation ─────────────────────────────────
+    // Never trust the LLM's pass field alone — compute it ourselves
+    // from the reading and tolerance so hallucinated "pass: true" can't
+    // let a wildly wrong reading through.
+    let pass: boolean;
+    let deviation: number | null = null;
+    const ev = req.expected.expected_value;
+    const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : 0.1);
+
+    if (req.expected.type === "colour_change") {
+      // Colour change has no numeric reading — trust the LLM
+      pass = parsed.pass ?? false;
+    } else if (reading !== null && ev !== null && ev !== undefined) {
+      deviation = round2(reading - ev);
+      const mathPass = Math.abs(deviation) <= tol;
+      const llmPass  = parsed.pass ?? false;
+      if (mathPass !== llmPass) {
+        console.warn(`[VISION] ⚠  LLM pass=${llmPass} overridden by math: |${reading} - ${ev}| = ${Math.abs(deviation).toFixed(3)} vs tol=${tol} → pass=${mathPass}`);
+      }
+      pass = mathPass;
+    } else {
+      // No numeric reading or no expected value — fall back to LLM
+      pass = parsed.pass ?? false;
+      deviation = parsed.deviation ?? null;
+    }
+
     const result: VisionResult = {
-      reading: parsed.reading ?? null,
+      reading,
       confidence: conf,
       pass,
-      deviation: parsed.deviation ?? null,
+      deviation,
       message: parsed.message ?? "Analysis complete.",
       notes: parsed.notes ?? "",
       // attempts and manual_override_available are set by the API route after recordVision()
@@ -277,7 +305,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       verification_status: verificationStatus(pass, conf),
     };
 
-    console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation}`);
+    console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation} (llm_pass=${parsed.pass ?? "?"}`);
     console.log(`[VISION]   message       : ${result.message}`);
     console.log(`${"─".repeat(60)}\n`);
     return result;
