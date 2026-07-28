@@ -112,6 +112,12 @@ export interface VisionResult {
   manual_override_available: boolean;
   /** Routing decision based on confidence threshold. */
   verification_status: VisionVerificationStatus;
+  /**
+   * The confidence bar this specific student had to clear to auto-verify —
+   * adapts to their record (0.78–0.94), not a fixed global constant. Lets the
+   * UI draw the marker at the bar the student actually had to clear.
+   */
+  verification_threshold: number;
 }
 
 // ─── Safety engine ──────────────────────────────────────────────────

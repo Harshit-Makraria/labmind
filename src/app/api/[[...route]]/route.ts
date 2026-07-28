@@ -237,6 +237,7 @@ app.post("/vision/check", async (c) => {
         message: `This is the same photo you already submitted for step ${clash.stepNumber}.`,
         notes: "Take a new photo of the current state of your apparatus.",
         attempts: 1, manual_override_available: false,
+        verification_threshold: VISION_HIGH_CONFIDENCE,
         verification_status: "retake",
       });
     }
@@ -253,28 +254,60 @@ app.post("/vision/check", async (c) => {
   result.attempts = attempts;
   result.manual_override_available = !result.pass && attempts >= 2;
 
+  // ── Adaptive auto-verify bar ────────────────────────────────────────
+  // The risk engine computes a per-student threshold (0.78–0.94: a clean
+  // record lowers it, safety alerts/overrides/skips/retries raise it) and it
+  // was previously DISPLAY-ONLY on the risk ranking page — this route always
+  // compared against the fixed 0.82 constant regardless of who submitted.
+  // That meant "adaptive thresholds" never actually changed what happened
+  // when a student submitted a photo. It now does.
+  let labRow: { instructorCode: string | null; studentName: string; prelabPassed: boolean | null } | null = null;
+  let threshold = VISION_HIGH_CONFIDENCE;
+  if (body.session_id) {
+    labRow = await db.labSession.findUnique({
+      where: { id: body.session_id },
+      select: { instructorCode: true, studentName: true, prelabPassed: true },
+    });
+    if (labRow) {
+      const risk = assessRisk({
+        sessionId: body.session_id,
+        studentName: labRow.studentName,
+        steps: priorSession?.steps ?? [],
+        safetyAlertCount: priorSession?.safetyAlertCount ?? 0,
+        deviationPercent: priorSession?.deviationPercent ?? null,
+        prelabPassed: labRow.prelabPassed,
+        // Pacing isn't recomputed on this hot path (it needs the protocol +
+        // session start time) — the risk ranking page already reflects it in
+        // full; the routing decision here still incorporates every other
+        // factor (alerts, overrides, skips, retries, pre-lab).
+        pacingFlagged: 0,
+      });
+      threshold = risk.verification_threshold;
+      if (threshold !== VISION_HIGH_CONFIDENCE) {
+        console.log(`[ROUTE /vision/check]   adaptive threshold: ${threshold} (risk score ${risk.score}/${risk.band}) — was ${VISION_HIGH_CONFIDENCE}`);
+      }
+    }
+  }
+  result.verification_threshold = threshold;
+
   // ─── Confidence-based routing ─────────────────────────────────────
-  // < 40%          →  retake        →  image too poor, ask student to retake (no instructor queue)
-  // 40–82%         →  needs_review  →  auto-queue for instructor, student continues
-  // ≥ 82% + pass   →  auto_verified →  step completes immediately
-  // ≥ 82% + fail   →  failed        →  retry / manual override after 2×
+  // < 40%              →  retake        →  image too poor, ask student to retake (no instructor queue)
+  // 40%–threshold      →  needs_review  →  auto-queue for instructor, student continues
+  // ≥ threshold + pass →  auto_verified →  step completes immediately
+  // ≥ threshold + fail →  failed        →  retry / manual override after 2×
   const isTooLow   = result.confidence < VISION_LOW_CONFIDENCE;
-  const isHighConf = result.confidence >= VISION_HIGH_CONFIDENCE;
+  const isHighConf = result.confidence >= threshold;
 
   if (isTooLow) {
     result.verification_status = "retake";
     console.log(`[ROUTE /vision/check] 📷 RETAKE — conf=${result.confidence} < ${VISION_LOW_CONFIDENCE} (image too poor, not queued)`);
   } else if (result.pass && isHighConf) {
     result.verification_status = "auto_verified";
-    console.log(`[ROUTE /vision/check] ✅ AUTO VERIFIED — conf=${result.confidence} ≥ ${VISION_HIGH_CONFIDENCE} reading=${result.reading}`);
+    console.log(`[ROUTE /vision/check] ✅ AUTO VERIFIED — conf=${result.confidence} ≥ ${threshold} reading=${result.reading}`);
   } else if (!isHighConf && body.session_id) {
     result.verification_status = "needs_review";
-    console.log(`[ROUTE /vision/check] 🔍 NEEDS REVIEW — conf=${result.confidence} (40–82%) — auto-queuing for instructor`);
+    console.log(`[ROUTE /vision/check] 🔍 NEEDS REVIEW — conf=${result.confidence} (40%–${threshold}) — auto-queuing for instructor`);
     try {
-      const labRow = await db.labSession.findUnique({
-        where: { id: body.session_id },
-        select: { instructorCode: true, studentName: true },
-      });
       if (labRow?.instructorCode) {
         const entry = await submitVerification({
           session_id: body.session_id,

@@ -15,14 +15,19 @@ import type { VisionExpected, VisionResult } from "@/lib/types";
 
 const FALLBACK_EXPECTED: VisionExpected = { type: "burette_reading", expected_value: null, tolerance: 0.1 };
 
-/** Animated confidence bar with a marker at the auto-verify threshold, so the
- * student sees exactly how close their read came to auto-passing. */
-function ConfidenceBar({ confidence, tone }: { confidence: number; tone: string }) {
+/**
+ * Animated confidence bar with a marker at the auto-verify threshold, so the
+ * student sees exactly how close their read came to auto-passing. The marker
+ * position is THIS student's actual adaptive bar (0.78–0.94, from the risk
+ * engine) — not a fixed global constant — so it always matches what really
+ * gated their submission.
+ */
+function ConfidenceBar({ confidence, tone, threshold }: { confidence: number; tone: string; threshold?: number }) {
   const pct = Math.round(confidence * 100);
   return (
     <div className="progress-track">
       <div className="progress-fill" style={{ width: `${pct}%`, backgroundColor: tone }} />
-      <span className="progress-marker" style={{ left: `${VISION_HIGH_CONFIDENCE * 100}%` }} />
+      <span className="progress-marker" style={{ left: `${(threshold ?? VISION_HIGH_CONFIDENCE) * 100}%` }} />
     </div>
   );
 }
@@ -245,7 +250,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
                 <p className="font-bold text-[var(--color-danger)]">Image too unclear — please retake</p>
                 <p className="text-[var(--color-navy)]">{result.message}</p>
               </div>
-              <ConfidenceBar confidence={result.confidence} tone="var(--color-danger)" />
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-danger)" threshold={result.verification_threshold} />
               <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — too low to process. Check lighting, focus, and angle.
               </p>
@@ -265,9 +270,9 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
                 )}
               </div>
               <p className="text-[var(--color-navy)]">{result.message}</p>
-              <ConfidenceBar confidence={result.confidence} tone="var(--color-accent)" />
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-accent)" threshold={result.verification_threshold} />
               <p className="font-data text-xs text-[var(--color-muted)]">
-                Confidence {(result.confidence * 100).toFixed(0)}% — high enough to auto-pass
+                Confidence {(result.confidence * 100).toFixed(0)}% — clears your {(result.verification_threshold * 100).toFixed(0)}% auto-pass bar
               </p>
             </div>
           </div>
@@ -285,9 +290,9 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
                 )}
               </div>
               <p className="text-[var(--color-navy)]">{result.message}</p>
-              <ConfidenceBar confidence={result.confidence} tone="var(--color-warning)" />
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-warning)" threshold={result.verification_threshold} />
               <p className="font-data text-xs text-[var(--color-muted)]">
-                Confidence {(result.confidence * 100).toFixed(0)}% — below threshold, instructor will verify. You can continue.
+                Confidence {(result.confidence * 100).toFixed(0)}% — below your {(result.verification_threshold * 100).toFixed(0)}% bar, instructor will verify. You can continue.
               </p>
             </div>
           </div>
@@ -305,7 +310,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
                 )}
               </div>
               <p className="text-[var(--color-muted)]">{result.notes}</p>
-              <ConfidenceBar confidence={result.confidence} tone="var(--color-danger)" />
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-danger)" threshold={result.verification_threshold} />
               <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% · attempt {result.attempts}
               </p>
