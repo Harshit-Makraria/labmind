@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { ProgressBar } from "@/components/student/ProgressBar";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/hooks/useSession";
-import { api } from "@/lib/api-client";
+import { ApiError, api } from "@/lib/api-client";
 import type { VisionExpected, VisionResult } from "@/lib/types";
 
 const FALLBACK_EXPECTED: VisionExpected = { type: "burette_reading", expected_value: null, tolerance: 0.1 };
@@ -91,8 +91,15 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
       setTimeout(() => {
         router.push(next < steps.length ? `/lab/${sessionId}` : `/lab/${sessionId}/result`);
       }, 750);
-    } catch {
-      // best-effort: advance locally even if the server failed
+    } catch (e) {
+      // The pre-lab gate is a deliberate server-side rejection — honour it
+      // instead of advancing locally, or the gate would be trivially bypassed.
+      if (e instanceof ApiError && e.body?.prelab_required) {
+        toast.error("Complete the pre-lab quiz before recording steps.", { duration: 6000 });
+        router.push(`/lab/${sessionId}/prelab`);
+        return;
+      }
+      // Any other failure: advance locally so a network blip can't strand the student.
       setStepIndex(next);
       setTimeout(() => {
         router.push(next < steps.length ? `/lab/${sessionId}` : `/lab/${sessionId}/result`);

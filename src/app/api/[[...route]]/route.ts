@@ -7,7 +7,7 @@ import { handle } from "hono/vercel";
 
 import { auth } from "@/auth";
 
-import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SessionAction, VisionCheckRequest } from "@/lib/types";
+import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SafetyConflict, SessionAction, VisionCheckRequest } from "@/lib/types";
 import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
 import { DEFAULT_EXPERIMENT_ID, getExperiment, listExperiments } from "@/server/experiments";
@@ -23,7 +23,7 @@ import { buildLearningSummary, buildReport } from "@/server/tools/summary";
 import { MOCK_SESSIONS } from "@/server/data/mock-sessions";
 import { generatePrelabQuiz, scorePrelabQuiz } from "@/server/tools/prelab-quiz";
 import {
-  addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
+  addInstructorNote, addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
   getAgentDecisionsFromDB, getSessionDetailFromDB,
   getTracesFromDB, hydrateSession, logAgentDecision, manualOverride,
   recordResult, recordSafetyAlert, recordVision, setCurrentStep, setStudentName,
@@ -150,9 +150,22 @@ app.post("/protocol/parse", async (c) => {
   const t0 = Date.now();
   const exp = getExperiment(body.experiment_id);
   const protocol = await parseProtocol(body.pdf_base64, body.experiment_id);
+
+  // Tell the client the truth about where the protocol came from. The parser
+  // falls back to the library on a scanned PDF, a missing key, or a model
+  // failure — the UI must not claim "PDF parsed" in those cases.
+  const parsedFromPdf = !!body.pdf_base64 && protocol.experiment_name !== exp.protocol.experiment_name;
+  const fallbackReason = !body.pdf_base64
+    ? null
+    : parsedFromPdf
+      ? null
+      : effectiveDemo()
+        ? "No AI key configured — add one in AI Settings to parse your own PDF."
+        : "Could not read text from that PDF (it may be a scan). Loaded the library experiment instead.";
+
   upsertSession({ sessionId: body.session_id, studentName: body.student_name, experimentId: exp.id, experimentName: protocol.experiment_name, totalSteps: protocol.steps.length });
-  recordTrace("protocol_parser", body.pdf_base64 ? "PDF upload" : `library: ${exp.id}`, `${protocol.experiment_name} · ${protocol.steps.length} steps`, Date.now() - t0);
-  return c.json({ ...protocol, session_id: body.session_id, experiment_id: exp.id, theoretical: exp.theoretical });
+  recordTrace("protocol_parser", body.pdf_base64 ? "PDF upload" : `library: ${exp.id}`, `${protocol.experiment_name} · ${protocol.steps.length} steps${parsedFromPdf ? " (from PDF)" : ""}`, Date.now() - t0);
+  return c.json({ ...protocol, session_id: body.session_id, experiment_id: exp.id, theoretical: exp.theoretical, parsed_from_pdf: parsedFromPdf, fallback_reason: fallbackReason });
 });
 
 // ─── Safety check ────────────────────────────────────────────────────
@@ -268,6 +281,44 @@ app.post("/vision/check", async (c) => {
   return c.json(result);
 });
 
+// ─── Safety escalation ───────────────────────────────────────────────
+// Backs the "Stop & get the instructor" button on a high-severity safety modal.
+// Writes a note onto the student's session, holds them at the current step, and
+// logs an agent decision so it surfaces in the instructor console immediately.
+app.post("/safety/escalate", async (c) => {
+  const body = await c.req.json<{ session_id: string; step_number: number; alerts?: SafetyConflict[] }>();
+  if (!body?.session_id) return c.json({ error: "session_id required" }, 400);
+
+  const session = await hydrateSession(body.session_id);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+
+  const alerts = body.alerts ?? [];
+  const top = alerts[0];
+  const summary = top ? `${top.type} (${top.severity}) — ${top.reagents.join(" + ")}` : "unspecified hazard";
+
+  console.warn(`\n[ESCALATE] 🚨 student=${session.studentName} session=${body.session_id} step=${body.step_number} — ${summary}`);
+
+  addInstructorNote(
+    body.session_id,
+    `🚨 STUDENT REQUESTED INSTRUCTOR — step ${body.step_number}: ${summary}`,
+  );
+  recordSafetyAlert(body.session_id, body.step_number, alerts);
+
+  logAgentDecision({
+    id: crypto.randomUUID(),
+    session_id: body.session_id,
+    trigger: `Student pressed "Stop & get the instructor" on step ${body.step_number}`,
+    plan: "High-severity safety conflict acknowledged by the student → escalate to a human and hold the session.",
+    tools: [{ tool: "notify_instructor", input: summary, output: "Session flagged; instructor console updated." }],
+    outcome: `Session held at step ${body.step_number} awaiting instructor.`,
+    provider: providerLabel(),
+    latency_ms: 0,
+    at: new Date().toISOString(),
+  });
+
+  return c.json({ ok: true, escalated: true, student_name: session.studentName, summary });
+});
+
 // ─── Results interpret ───────────────────────────────────────────────
 app.post("/results/interpret", async (c) => {
   const body = await c.req.json<InterpretRequest>();
@@ -297,6 +348,25 @@ app.post("/session/action", async (c) => {
   if (!session_id) return c.json({ error: "session_id required" }, 400);
   const session = await hydrateSession(session_id);
   if (!session) return c.json({ error: "Session not found" }, 404);
+
+  // Pre-lab gate — enforced here, not just in the UI, so a student cannot skip
+  // it by navigating straight to a step URL. Only step-advancing actions are
+  // gated; renaming yourself is always allowed.
+  const ADVANCING = new Set(["complete_step", "skip_step", "manual_override"]);
+  if (ADVANCING.has(action.type)) {
+    const gate = await db.labSession.findUnique({
+      where: { id: session_id },
+      select: { prelabPassed: true, instructorCode: true },
+    });
+    if (gate?.instructorCode && gate.prelabPassed !== true) {
+      console.warn(`[GATE] blocked ${action.type} on ${session_id} — pre-lab not passed (${gate.prelabPassed})`);
+      return c.json(
+        { error: "Pre-lab quiz must be passed before starting the experiment", prelab_required: true },
+        403,
+      );
+    }
+  }
+
   const experimentId = session.experimentId;
   switch (action.type) {
     case "complete_step":

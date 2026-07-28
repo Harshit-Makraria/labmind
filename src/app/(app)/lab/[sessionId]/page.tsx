@@ -133,7 +133,26 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
               dismissed.current.add(step.step_number);
               setShowModal(false);
             }}
-            onStop={() => router.push("/library")}
+            onStop={async () => {
+              try {
+                const res = await fetch("/api/safety/escalate", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    session_id: sessionId,
+                    step_number: step.step_number,
+                    alerts: safety.alerts,
+                  }),
+                });
+                if (!res.ok) throw new Error(String(res.status));
+                toast.success("Instructor alerted — stay where you are and wait for them.", { duration: 8000 });
+              } catch {
+                // Never leave the student thinking help is coming when it isn't.
+                toast.error("Could not reach the instructor console — go and find your instructor directly.", { duration: 10000 });
+              } finally {
+                setShowModal(false);
+              }
+            }}
           />
         )}
       </AnimatePresence>

@@ -175,7 +175,12 @@ export default function CreateSessionPage() {
                 });
                 const data = await res.json();
                 if (data.experiment_name) setForm((f) => ({ ...f, experiment_name: data.experiment_name }));
-                toast.success(`PDF parsed: ${data.experiment_name ?? file.name}`);
+                // Only claim a parse when the server actually structured the PDF.
+                if (data.parsed_from_pdf) {
+                  toast.success(`PDF parsed: ${data.experiment_name} · ${data.steps?.length ?? 0} steps`);
+                } else {
+                  toast.warning(data.fallback_reason ?? "Could not parse that PDF — loaded the library experiment instead.", { duration: 6000 });
+                }
               } catch {
                 toast.error("PDF parse failed — experiment name not extracted.");
               } finally {

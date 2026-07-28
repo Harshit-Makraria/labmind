@@ -20,13 +20,30 @@ import type {
   VisionResult,
 } from "@/lib/types";
 
+/** Thrown so callers can branch on a specific server rejection (e.g. the pre-lab gate). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly body: Record<string, unknown>) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(text); } catch { /* non-JSON error body */ }
+    throw new ApiError(
+      (parsed.error as string) ?? `${path} failed: ${res.status}`,
+      res.status,
+      parsed,
+    );
+  }
   return res.json() as Promise<TRes>;
 }
 

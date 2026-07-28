@@ -63,7 +63,8 @@ export default function LibraryPage() {
           <div>
             <h3 className="text-lg font-bold text-[var(--color-navy)]">Upload your own lab</h3>
             <p className="mt-1 text-sm text-[var(--color-muted)]">
-              Bring any lab PDF. With an LLM key it&apos;s parsed live; in demo it loads the sample titration.
+              Bring any text-based lab PDF and the agent structures it into steps. Scanned
+              PDFs have no text layer — those fall back to the sample titration.
             </p>
           </div>
 

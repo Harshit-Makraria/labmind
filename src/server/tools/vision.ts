@@ -19,98 +19,111 @@ function verificationStatus(pass: boolean, confidence: number): VisionVerificati
 
 // ─── Experiment-aware system prompts ────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a lab assistant AI that analyses student photographs from real chemistry and biology experiments.
-You will receive an image and return a JSON object describing what you see.
-Be precise, concise, and calibrated — never hallucinate a reading. If you cannot read a value, set confidence < 0.6 and pass: false.
-Always return valid JSON only — no markdown, no extra text.`;
+/**
+ * BLIND READING — the model is never told the expected value.
+ *
+ * The previous prompt included "the expected reading is approximately X mL"
+ * and then asked the model what it read. Vision models anchor hard on that
+ * number and report it back regardless of the pixels, which made the check
+ * circular: it confirmed whatever it was told to expect. That is how a 6 mL
+ * burette was "read" as 24.5 mL with high confidence — and why the
+ * server-side tolerance check alone could not catch it.
+ *
+ * The model now reports raw observations only. The server alone decides pass.
+ */
+const SYSTEM_PROMPT = `You are a forensic instrument reader for a science laboratory.
+You report ONLY what is physically visible in the photograph.
+
+Rules:
+- You are never told the expected value. Do not guess, infer, or assume what it "should" be.
+- Read the instrument exactly as it appears, even if the value seems unusual.
+- A value that looks wrong is still the correct answer if that is what the image shows.
+- If the scale is unreadable, occluded, or out of focus, return null and a low confidence. Reporting null is a correct, valuable answer — never invent a number to seem helpful.
+- Calibrate confidence honestly: 0.9+ only when graduation marks are crisp and unambiguous.
+Return valid JSON only — no markdown, no commentary.`;
 
 function buildUserPrompt(req: VisionCheckRequest): string {
   const { expected, step_number, experiment_id } = req;
-  const expLabel = experimentLabel(experiment_id);
-
-  const baseCtx = `Experiment: ${expLabel}. Step: ${step_number}.`;
+  const baseCtx = `Experiment: ${experimentLabel(experiment_id)}. Step: ${step_number}.`;
 
   if (expected.type === "burette_reading") {
-    const ev = expected.expected_value ?? "unknown";
-    const tol = expected.tolerance ?? 0.1;
     return `${baseCtx}
-The student has photographed a burette after a titration.
+This photograph shows a burette. Report the liquid level.
 
-Your task:
-1. Locate the burette meniscus in the image.
-2. Read the volume at the BOTTOM of the meniscus to the nearest 0.05 mL.
-3. The expected reading is approximately ${ev} mL ± ${tol} mL.
-4. Assess image quality: is the burette in focus, fully visible, well-lit, and free from parallax angle?
+Method:
+1. Find the liquid surface (meniscus) in the burette tube.
+2. Identify the nearest PRINTED number label directly ABOVE the meniscus, and the nearest directly BELOW it.
+3. Read the volume at the BOTTOM of the meniscus curve, to the nearest 0.05 mL.
+   Note: burette scales increase DOWNWARD (0 at the top).
+4. Judge image quality independently of the reading.
 
 Return JSON:
 {
-  "reading": <number — the mL value you read, or null if unreadable>,
-  "confidence": <0.0–1.0 — how certain you are of the reading>,
-  "pass": <true if reading is within ±${tol} mL of ${ev}, false otherwise>,
-  "deviation": <reading minus ${ev}, or null>,
-  "message": "<one sentence describing what you see and the reading>",
-  "notes": "<practical tip for the student if confidence is low or pass is false, otherwise 'Good technique — reading confirmed.'>"
+  "reading": <number — mL at the bottom of the meniscus, or null if you cannot read it>,
+  "graduation_above": <number — the printed label just above the meniscus, or null>,
+  "graduation_below": <number — the printed label just below the meniscus, or null>,
+  "meniscus_visible": <true|false — is the liquid surface actually visible and unobstructed>,
+  "scale_legible": <true|false — are the graduation marks sharp enough to read>,
+  "confidence": <0.0–1.0>,
+  "message": "<one sentence: what you see and the value you read>",
+  "notes": "<if quality is poor, the specific problem — blur, glare, parallax, clamp blocking the scale>"
 }`;
   }
 
   if (expected.type === "gel_band") {
-    const ev = expected.expected_value ?? "unknown";
-    const tol = expected.tolerance ?? 150;
     return `${baseCtx}
-The student has photographed an agarose gel electrophoresis result under UV light.
+This photograph shows an agarose gel under UV illumination. Report the band size.
 
-Your task:
-1. Identify the DNA band(s) in the student's lane.
-2. Estimate the size of the brightest/most prominent band in base pairs (bp) using the ladder bands visible on the gel.
-3. The expected band size is approximately ${ev} bp ± ${tol} bp.
-4. Assess image quality: is the gel visible under UV, are the bands distinct, is the ladder readable?
+Method:
+1. Locate the DNA ladder lane and the student's sample lane.
+2. Identify the brightest band in the sample lane.
+3. Estimate its size in base pairs by interpolating between the two nearest ladder bands.
+4. Judge image quality independently of the reading.
 
 Return JSON:
 {
-  "reading": <number — estimated bp of the target band, or null if unreadable>,
+  "reading": <number — estimated bp of the brightest sample band, or null>,
+  "graduation_above": <number — bp of the nearest ladder band ABOVE (larger), or null>,
+  "graduation_below": <number — bp of the nearest ladder band BELOW (smaller), or null>,
+  "meniscus_visible": <true|false — is a distinct band actually visible>,
+  "scale_legible": <true|false — is the ladder readable>,
   "confidence": <0.0–1.0>,
-  "pass": <true if reading is within ±${tol} bp of ${ev}, false otherwise>,
-  "deviation": <reading minus ${ev}, or null>,
-  "message": "<one sentence describing the gel bands you see>",
-  "notes": "<tip if confidence is low or pass is false, otherwise 'Band size confirmed within tolerance.'>"
+  "message": "<one sentence describing the lanes and bands you see>",
+  "notes": "<specific quality problem if any — overexposure, smearing, no ladder>"
 }`;
   }
 
   if (expected.type === "colour_change") {
-    const expObs = colourChangeDescription(experiment_id);
+    // Colour needs a target to judge against, but the OBSERVATION is still
+    // reported blind first so the server can check the verdict against it.
     return `${baseCtx}
-The student has photographed the reaction mixture at the claimed endpoint.
+This photograph shows a reaction mixture in a flask or beaker.
 
-Your task:
-1. Identify the colour of the solution in the flask/beaker.
-2. Determine whether the expected endpoint colour change has occurred: ${expObs}
-3. Is the colour change permanent (has the student left it at least 30 seconds) or did it flash and fade?
-4. Assess image quality: is the solution clearly visible and in good lighting?
+Report the colour you actually observe FIRST, before making any judgement.
 
 Return JSON:
 {
   "reading": null,
-  "confidence": <0.0–1.0>,
-  "pass": <true if the expected colour change is clearly visible and appears permanent>,
-  "deviation": null,
-  "message": "<one sentence describing the colour you observe>",
-  "notes": "<tip if confidence is low or the endpoint is not reached, otherwise 'Endpoint colour confirmed.'>"
+  "observed_colour": "<the colour you actually see, in plain words>",
+  "colour_intensity": "<none|faint|moderate|deep>",
+  "solution_visible": <true|false — is the liquid clearly visible>,
+  "scale_legible": <true|false — is lighting adequate to judge colour>,
+  "confidence": <0.0–1.0 — how sure you are of the colour you named>,
+  "message": "<one sentence describing what is in the vessel>",
+  "notes": "<lighting or clarity problems if any>"
 }`;
   }
 
-  // Generic fallback
   return `${baseCtx}
-Analyse this lab photo and verify whether the student has completed the step correctly.
-Expected observation: type=${expected.type}, value=${expected.expected_value ?? "N/A"}, tolerance=±${expected.tolerance}.
+Report what is physically visible in this laboratory photograph.
 
 Return JSON:
 {
-  "reading": <number or null>,
+  "reading": <number if an instrument value is visible, else null>,
+  "scale_legible": <true|false>,
   "confidence": <0.0–1.0>,
-  "pass": <true or false>,
-  "deviation": <number or null>,
   "message": "<what you observe in one sentence>",
-  "notes": "<feedback for the student>"
+  "notes": "<image quality problems if any>"
 }`;
 }
 
@@ -124,13 +137,18 @@ function experimentLabel(experimentId?: string): string {
   return (experimentId && map[experimentId]) ?? (experimentId ?? "General Lab Experiment");
 }
 
-function colourChangeDescription(experimentId?: string): string {
-  const map: Record<string, string> = {
-    "acid-base-titration": "The solution should change from colourless to a persistent pale pink/faint purple (phenolphthalein endpoint). A deep pink means you overshot.",
-    "iodine-clock": "The solution should turn suddenly from colourless to a deep blue-black colour (starch-iodine complex).",
-    "aur": "Check for the colour change described in your protocol.",
+/**
+ * Endpoint colours, held SERVER-SIDE only. The model reports the colour it
+ * observes without being told the target, and this list adjudicates the match —
+ * so the model cannot simply agree with the expected answer.
+ */
+function colourTargets(experimentId?: string): string[] {
+  const map: Record<string, string[]> = {
+    "acid-base-titration": ["pink", "rose", "magenta", "fuchsia", "purple"],
+    "iodine-clock": ["blue", "blue-black", "black", "navy", "dark blue"],
+    "aur-experiment": ["blue", "purple", "violet"],
   };
-  return map[experimentId ?? ""] ?? "A clear, visible colour change should be present.";
+  return map[experimentId ?? ""] ?? ["pink", "blue", "purple", "yellow", "orange", "green", "red"];
 }
 
 // ─── Demo / fallback heuristics ─────────────────────────────────────
@@ -256,40 +274,79 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
 
     const parsed = JSON.parse(raw) as {
       reading?: number | null;
+      graduation_above?: number | null;
+      graduation_below?: number | null;
+      meniscus_visible?: boolean;
+      solution_visible?: boolean;
+      scale_legible?: boolean;
+      observed_colour?: string;
+      colour_intensity?: string;
       confidence?: number;
-      pass?: boolean;
-      deviation?: number | null;
       message?: string;
       notes?: string;
     };
 
-    const conf = round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5)));
+    let conf = round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5)));
     const reading = parsed.reading ?? null;
-
-    // ── Server-side pass validation ─────────────────────────────────
-    // Never trust the LLM's pass field alone — compute it ourselves
-    // from the reading and tolerance so hallucinated "pass: true" can't
-    // let a wildly wrong reading through.
-    let pass: boolean;
-    let deviation: number | null = null;
     const ev = req.expected.expected_value;
     const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : 0.1);
 
+    // ── The model reported raw observations only. The server judges. ──
+    let pass: boolean;
+    let deviation: number | null = null;
+    const penalties: string[] = [];
+
+    // (a) Self-consistency: the reading must sit between the two graduation
+    //     labels the model claims to see. A model that invents a number to
+    //     match an expectation contradicts its own bracket — this catches that
+    //     without us ever needing to know the right answer.
+    const { graduation_above: gAbove, graduation_below: gBelow } = parsed;
+    if (reading !== null && typeof gAbove === "number" && typeof gBelow === "number") {
+      const lo = Math.min(gAbove, gBelow);
+      const hi = Math.max(gAbove, gBelow);
+      // Allow one graduation of slack for rounding at the boundary.
+      const slack = Math.max(0.5, (hi - lo) * 0.5);
+      if (reading < lo - slack || reading > hi + slack) {
+        penalties.push(`reading ${reading} falls outside its own reported graduations ${lo}–${hi}`);
+        conf = round2(Math.min(conf, 0.35));
+      }
+    }
+
+    // (b) The model's own quality flags cap confidence — it cannot claim 95%
+    //     certainty while also saying the scale was illegible.
+    if (parsed.scale_legible === false) {
+      penalties.push("model reported the scale as illegible");
+      conf = round2(Math.min(conf, 0.3));
+    }
+    if (parsed.meniscus_visible === false || parsed.solution_visible === false) {
+      penalties.push("model reported the subject as not clearly visible");
+      conf = round2(Math.min(conf, 0.3));
+    }
+    // (c) A null reading is never a pass, whatever confidence was claimed.
+    if (reading === null && req.expected.type !== "colour_change") {
+      penalties.push("no reading could be extracted");
+      conf = round2(Math.min(conf, 0.35));
+    }
+
     if (req.expected.type === "colour_change") {
-      // Colour change has no numeric reading — trust the LLM
-      pass = parsed.pass ?? false;
+      // Judge the observed colour against the expected endpoint HERE, on the
+      // server — the model never saw the target, so this stays independent.
+      const observed = (parsed.observed_colour ?? "").toLowerCase();
+      const intensity = (parsed.colour_intensity ?? "").toLowerCase();
+      const targets = colourTargets(req.experiment_id);
+      const matched = targets.some((t) => observed.includes(t));
+      pass = matched && intensity !== "none" && parsed.solution_visible !== false;
+      console.log(`[VISION]   colour: observed="${observed}" intensity="${intensity}" targets=[${targets.join("|")}] → match=${matched}`);
     } else if (reading !== null && ev !== null && ev !== undefined) {
       deviation = round2(reading - ev);
-      const mathPass = Math.abs(deviation) <= tol;
-      const llmPass  = parsed.pass ?? false;
-      if (mathPass !== llmPass) {
-        console.warn(`[VISION] ⚠  LLM pass=${llmPass} overridden by math: |${reading} - ${ev}| = ${Math.abs(deviation).toFixed(3)} vs tol=${tol} → pass=${mathPass}`);
-      }
-      pass = mathPass;
+      pass = Math.abs(deviation) <= tol;
+      console.log(`[VISION]   blind reading=${reading} vs expected=${ev} (tol ±${tol}) → |Δ|=${Math.abs(deviation).toFixed(3)} pass=${pass}`);
     } else {
-      // No numeric reading or no expected value — fall back to LLM
-      pass = parsed.pass ?? false;
-      deviation = parsed.deviation ?? null;
+      pass = false;
+    }
+
+    if (penalties.length) {
+      console.warn(`[VISION] ⚠  confidence capped to ${conf} — ${penalties.join("; ")}`);
     }
 
     const result: VisionResult = {
@@ -298,14 +355,14 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       pass,
       deviation,
       message: parsed.message ?? "Analysis complete.",
-      notes: parsed.notes ?? "",
+      notes: penalties.length ? `${parsed.notes ?? ""} (${penalties.join("; ")})`.trim() : (parsed.notes ?? ""),
       // attempts and manual_override_available are set by the API route after recordVision()
       attempts: 1,
       manual_override_available: false,
       verification_status: verificationStatus(pass, conf),
     };
 
-    console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation} (llm_pass=${parsed.pass ?? "?"}`);
+    console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation} status=${result.verification_status}`);
     console.log(`[VISION]   message       : ${result.message}`);
     console.log(`${"─".repeat(60)}\n`);
     return result;
