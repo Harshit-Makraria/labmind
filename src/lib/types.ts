@@ -81,6 +81,12 @@ export interface VisionCheckRequest {
   image_base64: string;
   expected: VisionExpected;
   experiment_id?: string;
+  /**
+   * Steps already recorded for this session. Server-populated (never sent by
+   * the client) so the physical-constraint layer can check this reading against
+   * the student's own earlier ones — monotonicity, plausible titre, concordance.
+   */
+  priorSteps?: StepRecord[];
 }
 
 /** Confidence thresholds for verification routing. */
@@ -288,6 +294,30 @@ export interface VerificationEntry {
   status: VerificationStatus;
   instructor_comment: string | null;
   resolved_at: string | null;
+}
+
+// ─── Measured vision accuracy ───────────────────────────────────────
+// Derived from instructor approve/reject decisions — ground truth, not a claim.
+
+export interface AccuracyBucket {
+  label: string;
+  total: number;
+  approved: number;
+  rejected: number;
+  /** Share of resolved items the instructor agreed with, 0–1. */
+  agreement: number | null;
+}
+
+export interface AccuracyReport {
+  resolved: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  agreement: number | null;
+  byConfidence: AccuracyBucket[];
+  /** High-confidence readings the instructor still rejected — the costly failures. */
+  confidentMisses: number;
+  generatedAt: string;
 }
 
 // ─── Learning summary & badges ──────────────────────────────────────

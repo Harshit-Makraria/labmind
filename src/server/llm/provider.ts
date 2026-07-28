@@ -75,6 +75,46 @@ export async function completeVision(system: string, input: VisionInput): Promis
   return openaiVisionChat(c, system, input);
 }
 
+export type VisionProvider = "claude" | "openai" | "gemini";
+
+/**
+ * Call one SPECIFIC vision provider, bypassing the auto waterfall.
+ *
+ * The ensemble reader needs to address engines individually so it can compare
+ * their answers; the waterfall would just return the first success every time.
+ * Quota errors still mark the provider exhausted so the rest of the app routes
+ * around it.
+ */
+export async function visionWithProvider(
+  provider: VisionProvider,
+  system: string,
+  input: VisionInput,
+  opts: { temperature?: number } = {},
+): Promise<string> {
+  const c = getConfig();
+  try {
+    if (provider === "claude") {
+      return await anthropicChat(
+        c,
+        system,
+        [{
+          role: "user",
+          content: [
+            { type: "text", text: input.prompt },
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.imageBase64 } },
+          ],
+        }],
+        opts.temperature,
+      );
+    }
+    if (provider === "openai") return await openaiVisionChat(c, system, input, opts.temperature);
+    return await geminiVision(c, system, input, opts.temperature);
+  } catch (e) {
+    if (isQuotaErr(e)) markExhausted(provider === "claude" ? "anthropic" : provider);
+    throw e;
+  }
+}
+
 export async function completeWithTools(
   system: string,
   messages: { role: "user" | "assistant" | "tool"; content: string; toolName?: string }[],
@@ -216,7 +256,7 @@ async function geminiText(c: LabmindConfig, system: string, user: string): Promi
   return geminiTextOf(JSON.parse(body) as GeminiResponse);
 }
 
-async function geminiVision(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
+async function geminiVision(c: LabmindConfig, system: string, input: VisionInput, temperature = 0.1): Promise<string> {
   const res = await fetch(geminiUrl(c, "generateContent"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -229,7 +269,7 @@ async function geminiVision(c: LabmindConfig, system: string, input: VisionInput
           { inlineData: { mimeType: "image/jpeg", data: input.imageBase64 } },
         ],
       }],
-      generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+      generationConfig: { temperature, responseMimeType: "application/json" },
     }),
   });
   const body = await res.text();
@@ -288,7 +328,7 @@ function geminiTextOf(data: GeminiResponse): string {
 
 // Vision-specific OpenAI call: uses gpt-4o (not gpt-4o-mini) for accuracy,
 // avoids response_format json_object which can conflict with image inputs on some versions.
-async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
+async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionInput, temperature = 0.1): Promise<string> {
   const { url, headers, isAzure } = openaiEndpoint(c);
   const res = await fetch(url, {
     method: "POST",
@@ -305,7 +345,7 @@ async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionI
           ],
         },
       ],
-      temperature: 0.1,   // low temperature for precise numeric readings
+      temperature,        // low by default for precise numeric readings
       max_tokens: 800,    // enough for full JSON + reasoning notes
     }),
   });
@@ -432,11 +472,17 @@ function openaiEndpoint(c: LabmindConfig) {
 
 // ─── Anthropic ───────────────────────────────────────────────────────
 
-async function anthropicChat(c: LabmindConfig, system: string, messages: unknown[]): Promise<string> {
+async function anthropicChat(c: LabmindConfig, system: string, messages: unknown[], temperature?: number): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: anthropicHeaders(c),
-    body: JSON.stringify({ model: c.anthropicModel, max_tokens: 1500, system, messages }),
+    body: JSON.stringify({
+      model: c.anthropicModel,
+      max_tokens: 1500,
+      system,
+      messages,
+      ...(temperature !== undefined ? { temperature } : {}),
+    }),
   });
   const body = await res.text();
   if (!res.ok) {

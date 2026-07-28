@@ -1,10 +1,10 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, MessageSquare, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, MessageSquare, Target, XCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { VerificationEntry } from "@/lib/types";
+import type { AccuracyReport, VerificationEntry } from "@/lib/types";
 
 export default function VerifyPage() {
   const qc = useQueryClient();
@@ -32,6 +32,12 @@ export default function VerifyPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const { data: accuracy } = useQuery<AccuracyReport>({
+    queryKey: ["vision-accuracy"],
+    queryFn: async () => (await fetch("/api/instructor/accuracy", { cache: "no-store" })).json(),
+    refetchInterval: 10_000,
+  });
+
   const entries = Array.isArray(data) ? data : [];
   const pending = entries.filter((v) => v.status === "pending");
   const resolved = entries.filter((v) => v.status !== "pending");
@@ -42,6 +48,8 @@ export default function VerifyPage() {
         <h2 className="text-xl font-bold text-[var(--color-navy)]">Verification Queue</h2>
         <p className="text-sm text-[var(--color-muted)]">Student photo submissions requiring your review</p>
       </div>
+
+      <AccuracyCard report={accuracy} />
 
       {pending.length === 0 && (
         <div className="card flex flex-col items-center gap-3 py-12 text-center">
@@ -73,6 +81,68 @@ export default function VerifyPage() {
             ))}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Live measured accuracy. Every decision below feeds this — it is the AI's
+ * agreement rate against the instructor's own rulings, not a claim.
+ */
+function AccuracyCard({ report }: { report?: AccuracyReport }) {
+  if (!report || report.resolved === 0) {
+    return (
+      <div className="card flex items-center gap-3 p-4 text-sm text-[var(--color-muted)]">
+        <Target size={18} className="shrink-0 text-[var(--color-brand)]" />
+        <span>
+          Vision accuracy will appear here once you have reviewed a few submissions — it is measured
+          against your own approve/reject decisions.
+        </span>
+      </div>
+    );
+  }
+
+  const agreementPct = Math.round((report.agreement ?? 0) * 100);
+  const tone = agreementPct >= 90 ? "var(--color-accent)" : agreementPct >= 75 ? "var(--color-warning)" : "var(--color-danger)";
+
+  return (
+    <div className="card space-y-3 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-navy)]">
+            <Target size={15} /> Measured vision accuracy
+          </p>
+          <p className="text-xs text-[var(--color-muted)]">
+            Agreement with your decisions across {report.resolved} reviewed submission{report.resolved === 1 ? "" : "s"}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-2xl font-bold leading-none" style={{ color: tone }}>{agreementPct}%</p>
+          <p className="text-[11px] text-[var(--color-muted)]">{report.approved} approved · {report.rejected} rejected</p>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        {report.byConfidence.map((b) => (
+          <div key={b.label} className="rounded-lg bg-black/[0.03] px-3 py-2">
+            <p className="text-[11px] font-semibold text-[var(--color-muted)]">{b.label}</p>
+            <p className="text-sm font-bold text-[var(--color-navy)]">
+              {b.agreement === null ? "—" : `${Math.round(b.agreement * 100)}%`}
+              <span className="ml-1 text-[11px] font-normal text-[var(--color-muted)]">({b.total})</span>
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {report.confidentMisses > 0 && (
+        <p className="flex items-start gap-1.5 rounded-lg bg-[var(--color-danger)]/8 px-3 py-2 text-xs text-[var(--color-danger)]">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          <span>
+            <strong>{report.confidentMisses}</strong> high-confidence reading{report.confidentMisses === 1 ? " was" : "s were"} rejected —
+            worth lowering the auto-verify threshold.
+          </span>
+        </p>
       )}
     </div>
   );

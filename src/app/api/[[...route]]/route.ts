@@ -35,6 +35,7 @@ import {
   listInstructorSessions, listVerifications, resolveVerification,
   seedDemoData, submitVerification,
 } from "@/server/store/code-store";
+import { getAccuracyReport } from "@/server/store/accuracy";
 import { getLlmStatus, loadRuntimeSettings, saveRuntimeSettings } from "@/server/runtime-config";
 import { exhaustedProviders, anyExhausted } from "@/server/llm/provider-state";
 
@@ -209,9 +210,12 @@ app.post("/vision/check", async (c) => {
   // Hydrate first — recordVision() is a sync store mutator that silently no-ops
   // when the session isn't in this instance's memory Map. Without this the
   // attempt counter never increments past 1 and manual override never unlocks.
-  if (body.session_id) await hydrateSession(body.session_id);
+  const priorSession = body.session_id ? await hydrateSession(body.session_id) : undefined;
 
-  const result = await checkVision(body);
+  // Feed the student's own earlier readings to the physical-constraint layer.
+  // Assigned from the server's copy and never taken from the request body — a
+  // client could otherwise forge a history that makes any reading look valid.
+  const result = await checkVision({ ...body, priorSteps: priorSession?.steps ?? [] });
   const latency = Date.now() - t0;
 
   let attempts = 1;
@@ -611,6 +615,10 @@ app.get("/instructor/sessions/:code/students/export", async (c) => {
 // ─── Verification queue ──────────────────────────────────────────────
 // Note: these routes are called from instructor pages that are already protected
 // by NextAuth middleware at the page level. No additional passcode check needed.
+
+// Instructor decisions are ground truth — aggregate them into a live accuracy
+// figure rather than discarding them.
+app.get("/instructor/accuracy", async (c) => c.json(await getAccuracyReport()));
 
 app.get("/instructor/verify", async (c) => {
   const status = c.req.query("status") as "pending" | "approved" | "rejected" | undefined;

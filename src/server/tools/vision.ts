@@ -6,7 +6,10 @@ import "server-only";
 import type { VisionCheckRequest, VisionResult, VisionExpected, VisionVerificationStatus } from "@/lib/types";
 import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo } from "@/server/config";
-import { completeVision } from "@/server/llm/provider";
+import { assessQuality } from "@/server/tools/image-quality";
+import { cropToInstrument } from "@/server/tools/image-crop";
+import { ensembleRead } from "@/server/tools/vision-ensemble";
+import { checkPhysicalConstraints, hasHardViolation } from "@/server/tools/physical-constraints";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -40,7 +43,17 @@ Rules:
 - A value that looks wrong is still the correct answer if that is what the image shows.
 - If the scale is unreadable, occluded, or out of focus, return null and a low confidence. Reporting null is a correct, valuable answer — never invent a number to seem helpful.
 - Calibrate confidence honestly: 0.9+ only when graduation marks are crisp and unambiguous.
-Return valid JSON only — no markdown, no commentary.`;
+Return valid JSON only — no markdown, no commentary.
+
+Worked examples of correct burette reading technique:
+- Meniscus sits two small marks below the printed "24", scale increasing downward,
+  minor divisions of 0.1 mL → reading is 24.20, graduation_above 24, graduation_below 25.
+- Liquid surface sits exactly on the printed "0" line at the top of the tube
+  → reading is 0.00, graduation_above 0, graduation_below 1.
+- A clamp covers the scale where the meniscus sits, so the nearest marks cannot be
+  counted → reading is null, scale_legible false, confidence 0.2.
+Read the BOTTOM of the meniscus curve, not the rim, and note that burette scales
+increase downward (0 at the top).`;
 
 function buildUserPrompt(req: VisionCheckRequest): string {
   const { expected, step_number, experiment_id } = req;
@@ -258,21 +271,43 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
   }
 
   const prompt = buildUserPrompt(req);
-  console.log(`[VISION]   prompt snippet: ${prompt.slice(0, 120).replace(/\n/g, " ")}…`);
-  console.log(`[VISION] ⏳ Calling GPT-4o vision API…`);
-
+  const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : 0.1);
   const t0 = Date.now();
+
+  // ── Stage 1: pre-flight quality gate ─────────────────────────────────
+  // Reject unusable input before paying for inference, and tell the student
+  // exactly what is wrong rather than a vague "low confidence".
+  const quality = await assessQuality(img);
+  console.log(`[VISION]   quality: ${quality.width}×${quality.height} sharpness=${quality.sharpness} brightness=${quality.brightness} ok=${quality.ok}`);
+  if (!quality.ok) {
+    console.warn(`[VISION] ✗ PRE-FLIGHT REJECT (${quality.code}) — no model call made`);
+    console.log(`${"─".repeat(60)}\n`);
+    return {
+      reading: null, confidence: 0.2, pass: false, deviation: null,
+      message: quality.reason ?? "Image quality too low to analyse.",
+      notes: "Retake the photo and submit again — this was not sent for review.",
+      attempts: 1, manual_override_available: false,
+      verification_status: "retake" as VisionVerificationStatus,
+    };
+  }
+
   try {
-    const raw = await completeVision(SYSTEM_PROMPT, {
-      imageBase64: img.includes(",") ? img.split(",", 2)[1] ?? img : img,
-      prompt,
-    });
+    // ── Stage 2: crop to the instrument and upscale ────────────────────
+    let readImage = img.includes(",") ? img.split(",", 2)[1] ?? img : img;
+    if (req.expected.type !== "colour_change") {
+      const crop = await cropToInstrument(readImage);
+      readImage = crop.imageBase64;
+      console.log(`[VISION]   crop: ${crop.cropped ? "✓" : "skipped"} — ${crop.reason}`);
+    }
+
+    // ── Stage 3: multi-sample / cross-provider read ────────────────────
+    const ensemble = await ensembleRead(SYSTEM_PROMPT, prompt, readImage, tol, 3);
+    if (!ensemble) throw new Error("no provider returned a usable observation");
 
     const latency = Date.now() - t0;
-    console.log(`[VISION] ✓ GPT-4o responded in ${latency}ms`);
-    console.log(`[VISION]   raw response : ${raw.slice(0, 300)}`);
+    console.log(`[VISION] ✓ ensemble complete in ${latency}ms via [${ensemble.providersUsed.join(", ")}]`);
 
-    const parsed = JSON.parse(raw) as {
+    const parsed = ensemble.representative as {
       reading?: number | null;
       graduation_above?: number | null;
       graduation_below?: number | null;
@@ -286,10 +321,12 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       notes?: string;
     };
 
-    let conf = round2(Math.max(0, Math.min(1, parsed.confidence ?? 0.5)));
-    const reading = parsed.reading ?? null;
+    // Confidence now comes from measured agreement across samples, NOT from the
+    // model's own claim — self-reported confidence is poorly calibrated and was
+    // the reason a wrong reading arrived looking certain.
+    let conf = ensemble.agreementConfidence;
+    let reading = ensemble.reading;
     const ev = req.expected.expected_value;
-    const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : 0.1);
 
     // ── The model reported raw observations only. The server judges. ──
     let pass: boolean;
@@ -328,6 +365,27 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       conf = round2(Math.min(conf, 0.35));
     }
 
+    // (d) Physics. No AI involved: does this value exist on the instrument's
+    //     scale, is it within range, and is it consistent with what this same
+    //     student recorded earlier? A model can invent a plausible number; it
+    //     cannot make that number obey the glassware and the session history.
+    const physical = checkPhysicalConstraints(reading, req.expected.type, req.priorSteps ?? [], req.step_number);
+    if (physical.violations.length) {
+      for (const v of physical.violations) {
+        console.warn(`[PHYSICS] ${v.severity.toUpperCase()} ${v.code}: ${v.message}`);
+        penalties.push(v.message);
+      }
+      if (hasHardViolation(physical.violations)) {
+        // Physically impossible — this cannot be auto-verified at any confidence.
+        conf = round2(Math.min(conf, 0.2));
+      } else {
+        conf = round2(Math.min(conf, 0.55)); // suspicious → route to a human
+      }
+    }
+    // Snap to a real graduation so we never record a value the instrument
+    // cannot actually display.
+    if (physical.snappedReading !== null) reading = physical.snappedReading;
+
     if (req.expected.type === "colour_change") {
       // Judge the observed colour against the expected endpoint HERE, on the
       // server — the model never saw the target, so this stays independent.
@@ -339,7 +397,9 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       console.log(`[VISION]   colour: observed="${observed}" intensity="${intensity}" targets=[${targets.join("|")}] → match=${matched}`);
     } else if (reading !== null && ev !== null && ev !== undefined) {
       deviation = round2(reading - ev);
-      pass = Math.abs(deviation) <= tol;
+      // A hard physical violation overrides agreement with the expected value:
+      // if the reading cannot be real, matching the expectation proves nothing.
+      pass = Math.abs(deviation) <= tol && !hasHardViolation(physical.violations);
       console.log(`[VISION]   blind reading=${reading} vs expected=${ev} (tol ±${tol}) → |Δ|=${Math.abs(deviation).toFixed(3)} pass=${pass}`);
     } else {
       pass = false;

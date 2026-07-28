@@ -14,6 +14,15 @@ import type { VisionExpected, VisionResult } from "@/lib/types";
 
 const FALLBACK_EXPECTED: VisionExpected = { type: "burette_reading", expected_value: null, tolerance: 0.1 };
 
+function imageDimensions(dataUrl: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 function fileToParts(file: File): Promise<{ dataUrl: string; base64: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -110,6 +119,19 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
   async function onPick(file: File | undefined) {
     if (!file) return;
     const { dataUrl, base64: b64 } = await fileToParts(file);
+
+    // Client-side pre-check: catch an obviously unusable photo here rather than
+    // after a round trip. The server runs a stricter gate; this just saves the
+    // student the wait on the clearest failures.
+    const dims = await imageDimensions(dataUrl).catch(() => null);
+    if (dims && Math.min(dims.w, dims.h) < 500) {
+      toast.warning(
+        `That photo is only ${dims.w}×${dims.h}. Move closer so the scale fills the frame, then retake.`,
+        { duration: 6000 },
+      );
+      return;
+    }
+
     setPreview(dataUrl);
     setBase64(b64);
     setResult(null);
@@ -136,14 +158,34 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
           // eslint-disable-next-line @next/next/no-img-element
           <img src={preview} alt="Captured" className="max-h-72 w-full rounded-[var(--radius-btn)] object-cover" />
         ) : (
-          <button
-            onClick={() => inputRef.current?.click()}
-            className="flex w-full flex-col items-center gap-2 rounded-[var(--radius-card)] border-2 border-dashed border-[var(--color-brand)]/40 bg-[var(--color-brand)]/5 p-10 text-[var(--color-brand)]"
-          >
-            <Camera size={32} />
-            <span className="font-semibold">Take / choose a photo</span>
-            <span className="text-xs opacity-70">Point at the burette, gel, or flask</span>
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={() => inputRef.current?.click()}
+              className="relative flex w-full flex-col items-center gap-2 overflow-hidden rounded-[var(--radius-card)] border-2 border-dashed border-[var(--color-brand)]/40 bg-[var(--color-brand)]/5 p-10 text-[var(--color-brand)]"
+            >
+              {/* Framing guide — a tall narrow target matching a burette's shape.
+                  Getting the scale to fill the frame is the single biggest factor
+                  in reading accuracy, so we show the student the shape to aim for. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-4 left-1/2 w-16 -translate-x-1/2 rounded-md border-2 border-[var(--color-brand)]/30"
+                style={{ borderStyle: "dashed" }}
+              />
+              <Camera size={32} className="relative" />
+              <span className="relative font-semibold">Take / choose a photo</span>
+              <span className="relative text-xs opacity-70">Fill the guide with the scale</span>
+            </button>
+
+            <div className="rounded-[var(--radius-btn)] bg-black/[0.03] px-3 py-2.5 text-xs text-[var(--color-muted)]">
+              <p className="mb-1 font-semibold text-[var(--color-navy)]">For an accurate reading</p>
+              <ul className="space-y-0.5">
+                <li>• Hold the phone <strong>level with the liquid surface</strong> — looking down or up causes parallax error</li>
+                <li>• Get close enough that the graduation numbers are readable</li>
+                <li>• Avoid glare on the glass; tap the screen to focus before shooting</li>
+                <li>• Make sure the clamp isn&apos;t covering the scale</li>
+              </ul>
+            </div>
+          </div>
         )}
         <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
 
