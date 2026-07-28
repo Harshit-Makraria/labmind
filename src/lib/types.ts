@@ -320,6 +320,89 @@ export interface AccuracyReport {
   generatedAt: string;
 }
 
+// ─── Pacing / integrity ─────────────────────────────────────────────
+
+export type PacingFlag = "impossibly_fast" | "no_dwell" | "suspicious_uniformity";
+
+export interface StepPacing {
+  step_number: number;
+  title: string;
+  elapsed_seconds: number | null;
+  expected_seconds: number | null;
+  flag: PacingFlag | null;
+  reason: string | null;
+}
+
+export interface PacingReport {
+  steps: StepPacing[];
+  total_seconds: number | null;
+  expected_total_seconds: number;
+  flagged_count: number;
+  /** null until enough steps are completed to judge — no data is not a pass. */
+  integrity_score: number | null;
+  verdict: "no_data" | "consistent" | "review_recommended" | "implausible";
+  summary: string;
+}
+
+// ─── Risk / adaptive supervision ────────────────────────────────────
+
+export interface RiskFactor {
+  code: string;
+  label: string;
+  weight: number;
+}
+
+export interface RiskAssessment {
+  session_id: string;
+  student_name: string;
+  score: number;
+  band: "low" | "moderate" | "elevated" | "high";
+  factors: RiskFactor[];
+  verification_threshold: number;
+  recommendation: string;
+  pacing_verdict: PacingReport["verdict"];
+  integrity_score: number | null;
+  current_step: number;
+  total_steps: number;
+}
+
+// ─── Tamper-evident audit chain ─────────────────────────────────────
+
+export interface ChainedEvent {
+  index: number;
+  at: string;
+  step_number: number;
+  summary: string;
+  severity: string;
+  prev_hash: string;
+  hash: string;
+}
+
+export interface ChainVerification {
+  intact: boolean;
+  verified_count: number;
+  broken_at: number | null;
+  message: string;
+}
+
+// ─── Student history ────────────────────────────────────────────────
+
+export interface HistoryEntry {
+  session_id: string;
+  experiment_id: string;
+  experiment_name: string;
+  status: SessionStatus;
+  current_step: number;
+  total_steps: number;
+  steps_completed: number;
+  deviation_percent: number | null;
+  prelab_score: number | null;
+  safety_alert_count: number;
+  override_count: number;
+  started_at: string;
+  updated_at: string;
+}
+
 // ─── Learning summary & badges ──────────────────────────────────────
 
 export interface Badge {

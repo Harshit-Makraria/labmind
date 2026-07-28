@@ -1,10 +1,12 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Bot, BookOpen, FileText, FlaskConical, History, PlusCircle } from "lucide-react";
+import { Bot, BookOpen, FileText, FlaskConical, History, Loader2, PlusCircle } from "lucide-react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { loadSession } from "@/hooks/useSession";
+import type { HistoryEntry } from "@/lib/types";
 
 export default function StudentDashboard() {
   const { data: authSession } = useSession();
@@ -86,6 +88,8 @@ export default function StudentDashboard() {
         )}
       </div>
 
+      <PastExperiments />
+
       {/* How it works strip */}
       <div className="card p-5">
         <h3 className="mb-3 font-bold text-[var(--color-navy)]">How an experiment works</h3>
@@ -103,6 +107,102 @@ export default function StudentDashboard() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Real history, keyed to the student's account rather than this browser's
+ * sessionStorage — so their record follows them across devices.
+ */
+function PastExperiments() {
+  const { data: history = [], isLoading } = useQuery<HistoryEntry[]>({
+    queryKey: ["student-history"],
+    queryFn: async () => {
+      const res = await fetch("/api/student/history", { cache: "no-store" });
+      const json = await res.json();
+      return Array.isArray(json) ? json : [];
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="card flex items-center justify-center py-10">
+        <Loader2 size={20} className="animate-spin text-[var(--color-brand)]" />
+      </div>
+    );
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="card flex flex-col items-center gap-2 py-10 text-center">
+        <History size={30} className="text-[var(--color-muted)]" />
+        <p className="font-semibold text-[var(--color-navy)]">No experiments yet</p>
+        <p className="max-w-sm text-sm text-[var(--color-muted)]">
+          Join a session or start one from the library — your completed experiments and scores
+          will collect here.
+        </p>
+      </div>
+    );
+  }
+
+  const completed = history.filter((h) => h.status === "completed");
+  const accurate = completed.filter((h) => h.deviation_percent !== null && h.deviation_percent <= 5).length;
+
+  return (
+    <div className="card space-y-4 p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-bold text-[var(--color-navy)]">My experiments</h3>
+        <p className="text-xs text-[var(--color-muted)]">
+          {completed.length} completed
+          {completed.length > 0 && ` · ${accurate} within 5% of expected`}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {history.map((h) => {
+          const done = h.status === "completed";
+          const dev = h.deviation_percent;
+          const devColor =
+            dev === null ? "var(--color-muted)"
+              : dev <= 2 ? "var(--color-accent)"
+              : dev <= 10 ? "var(--color-warning)"
+              : "var(--color-danger)";
+          return (
+            <Link
+              key={h.session_id}
+              href={done ? `/lab/${h.session_id}/report` : `/lab/${h.session_id}`}
+              className="flex items-center gap-3 rounded-[var(--radius-btn)] border border-black/[0.07] p-3 transition hover:border-[var(--color-brand)]/40"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-[var(--color-navy)]">{h.experiment_name}</p>
+                <p className="text-xs text-[var(--color-muted)]">
+                  {new Date(h.started_at).toLocaleDateString()} · {h.steps_completed}/{h.total_steps} steps
+                  {h.safety_alert_count > 0 && ` · ${h.safety_alert_count} safety alert${h.safety_alert_count === 1 ? "" : "s"}`}
+                  {h.override_count > 0 && ` · ${h.override_count} override${h.override_count === 1 ? "" : "s"}`}
+                </p>
+              </div>
+
+              {dev !== null && (
+                <div className="shrink-0 text-right">
+                  <p className="text-sm font-bold" style={{ color: devColor }}>{dev}%</p>
+                  <p className="text-[10px] text-[var(--color-muted)]">deviation</p>
+                </div>
+              )}
+
+              <span
+                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
+                style={{
+                  backgroundColor: done ? "var(--color-accent)" : "var(--color-brand)",
+                  color: "#fff",
+                }}
+              >
+                {done ? "Done" : "In progress"}
+              </span>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

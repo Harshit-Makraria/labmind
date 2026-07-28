@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
-  AlertTriangle, Bot, ClipboardList, FlaskConical, LayoutDashboard, Loader2,
+  AlertTriangle, Bot, ClipboardList, FlaskConical, Gauge, LayoutDashboard, LayoutGrid, Loader2,
   type LucideIcon, Menu, Microscope, PanelLeft,
   PanelLeftClose, PlusCircle, Settings, Users,
 } from "lucide-react";
@@ -19,6 +19,8 @@ interface NavEntry { href: string; label: string; icon: LucideIcon }
 const INSTRUCTOR_NAV: NavEntry[] = [
   { href: "/instructor/dashboard", label: "Dashboard",           icon: LayoutDashboard },
   { href: "/instructor/create-session", label: "Create Session", icon: PlusCircle },
+  { href: "/instructor/wall", label: "Bench View",               icon: LayoutGrid },
+  { href: "/instructor/risk", label: "Needs Attention",          icon: Gauge },
   { href: "/instructor/verify", label: "Verification Queue",     icon: ClipboardList },
   { href: "/instructor/reports", label: "Reports",               icon: Microscope },
   { href: "/assistant", label: "AI Assistant",                   icon: Bot },
@@ -38,7 +40,10 @@ function titleFor(path: string): string {
   if (path.includes("/instructor/create-session")) return "Create Session";
   if (path.includes("/instructor/session"))      return "Session Monitor";
   if (path.includes("/instructor/verify"))       return "Verification Queue";
+  if (path.includes("/instructor/wall"))         return "Bench View";
+  if (path.includes("/instructor/risk"))         return "Needs Attention";
   if (path.includes("/instructor/reports"))      return "Reports";
+  if (path.includes("/integrity"))               return "Timing Integrity";
   if (path.includes("/student/dashboard"))       return "Student Dashboard";
   if (path.includes("/student/join"))            return "Join Session";
   if (path.includes("/library"))                 return "Experiment Library";

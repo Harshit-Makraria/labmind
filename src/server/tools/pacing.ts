@@ -37,9 +37,13 @@ export interface PacingReport {
   total_seconds: number | null;
   expected_total_seconds: number;
   flagged_count: number;
-  /** 0–100. 100 = pacing entirely consistent with genuine lab work. */
-  integrity_score: number;
-  verdict: "consistent" | "review_recommended" | "implausible";
+  /**
+   * 0–100, or null when there is not yet enough evidence to score.
+   * Absence of data is not evidence of good practice — a session with no
+   * completed steps must not present as a perfect 100.
+   */
+  integrity_score: number | null;
+  verdict: "no_data" | "consistent" | "review_recommended" | "implausible";
   summary: string;
 }
 
@@ -124,9 +128,24 @@ export function analysePacing(
   const flagged = out.filter((s) => s.flag).length;
   const total = out.length ? gaps.reduce((a, b) => a + b, 0) : null;
 
+  // A session with nothing completed carries no evidence either way. Scoring it
+  // 100 would present an unstarted experiment as verified good practice, so
+  // withhold the score until there is something to judge.
+  if (out.length === 0) {
+    return {
+      steps: out,
+      total_seconds: null,
+      expected_total_seconds: expectedTotal,
+      flagged_count: 0,
+      integrity_score: null,
+      verdict: "no_data",
+      summary: "No steps completed yet — timing integrity will be assessed as the student works.",
+    };
+  }
+
   // Score falls with the SHARE of steps flagged, not the raw count, so a long
   // experiment isn't penalised for one anomaly.
-  const ratio = out.length ? flagged / out.length : 0;
+  const ratio = flagged / out.length;
   const integrity = Math.max(0, Math.round((1 - ratio) * 100));
 
   const verdict: PacingReport["verdict"] =
