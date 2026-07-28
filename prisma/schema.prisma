@@ -114,6 +114,8 @@ model VerificationEntry {
   studentName       String
   stepNumber        Int
   imageBase64       String     @db.Text
+  /// Perceptual dHash — detects the same photo resubmitted for another step.
+  imageHash         String?
   aiReading         Float?
   aiConfidence      Float
   aiMessage         String?

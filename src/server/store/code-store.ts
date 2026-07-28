@@ -178,7 +178,7 @@ function rowToEntry(row: {
 }
 
 export async function submitVerification(
-  entry: Omit<VerificationEntry, "id" | "status" | "instructor_comment" | "resolved_at">,
+  entry: Omit<VerificationEntry, "id" | "status" | "instructor_comment" | "resolved_at"> & { image_hash?: string | null },
 ): Promise<VerificationEntry> {
   const row = await db.verificationEntry.create({
     data: {
@@ -186,6 +186,7 @@ export async function submitVerification(
       studentName: entry.student_name,
       stepNumber: entry.step_number,
       imageBase64: entry.image_base64 ?? "",
+      imageHash: entry.image_hash ?? null,
       aiReading: entry.ai_reading,
       aiConfidence: entry.ai_confidence,
       aiMessage: entry.ai_message,

@@ -7,7 +7,11 @@ import { handle } from "hono/vercel";
 
 import { auth } from "@/auth";
 
-import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SafetyConflict, SessionAction, VisionCheckRequest } from "@/lib/types";
+import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SafetyConflict, SessionAction, StepRecord, VisionCheckRequest } from "@/lib/types";
+import { fingerprint, isDuplicate } from "@/server/tools/image-fingerprint";
+import { analysePacing } from "@/server/tools/pacing";
+import { assessRisk } from "@/server/tools/risk";
+import { buildChain, verifyChain } from "@/server/tools/audit-chain";
 import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
 import { DEFAULT_EXPERIMENT_ID, getExperiment, listExperiments } from "@/server/experiments";
@@ -212,6 +216,32 @@ app.post("/vision/check", async (c) => {
   // attempt counter never increments past 1 and manual override never unlocks.
   const priorSession = body.session_id ? await hydrateSession(body.session_id) : undefined;
 
+  // ── Duplicate-image guard ──────────────────────────────────────────
+  // Nothing previously stopped the same photo being submitted for a different
+  // step, or two students submitting the same apparatus. Both yield a valid
+  // reading and pass every downstream check.
+  const fp = await fingerprint(body.image_base64);
+  if (fp && body.session_id) {
+    const priorImages = await db.verificationEntry.findMany({
+      where: { sessionId: body.session_id, NOT: { imageHash: null } },
+      select: { imageHash: true, stepNumber: true },
+    });
+    const clash = priorImages.find(
+      (p) => p.stepNumber !== body.step_number && p.imageHash && isDuplicate(fp, p.imageHash),
+    );
+    if (clash) {
+      console.warn(`[DUPLICATE] session=${body.session_id} step=${body.step_number} matches step ${clash.stepNumber} (hash ${fp})`);
+      recordTrace("vision_tool", `step ${body.step_number} duplicate`, `matches step ${clash.stepNumber}`, Date.now() - t0, 0);
+      return c.json({
+        reading: null, confidence: 0, pass: false, deviation: null,
+        message: `This is the same photo you already submitted for step ${clash.stepNumber}.`,
+        notes: "Take a new photo of the current state of your apparatus.",
+        attempts: 1, manual_override_available: false,
+        verification_status: "retake",
+      });
+    }
+  }
+
   // Feed the student's own earlier readings to the physical-constraint layer.
   // Assigned from the server's copy and never taken from the request body — a
   // client could otherwise forge a history that makes any reading look valid.
@@ -255,6 +285,7 @@ app.post("/vision/check", async (c) => {
           ai_confidence: result.confidence,
           ai_message: `Confidence ${(result.confidence * 100).toFixed(0)}% (needs review): ${result.message}`,
           submitted_at: new Date().toISOString(),
+          image_hash: fp,
         });
         console.log(`[ROUTE /vision/check] ✓ Queued for instructor review: entry_id=${entry.id}`);
       } else {
@@ -658,6 +689,14 @@ app.post("/student/join", async (c) => {
     return c.json({ error: "This session has been ended by the instructor" }, 403);
   }
   const exp = getExperiment(instrSession.experiment_id);
+
+  // Attribute the session to the AUTHENTICATED account, not to a typed-in name.
+  // Previously studentName came straight from the join form, so a student could
+  // record work under a classmate's name and nothing linked a session to a user
+  // — which meant no history, no cross-device resume, and no defensible record.
+  const user = c.get("user");
+  const attributedName = user?.name ?? user?.email ?? student_name ?? "Student";
+
   // Atomically upsert the labSession with instructorCode in one DB call so the
   // foreign key is always set — avoids the race where a fire-and-forget persist
   // hadn't committed yet when addStudentToSession tried to UPDATE the same row.
@@ -665,17 +704,107 @@ app.post("/student/join", async (c) => {
     where: { id: session_id },
     create: {
       id: session_id,
-      studentName: student_name ?? "Student",
+      studentName: attributedName,
       experimentId: exp.id,
       experimentName: exp.name,
       totalSteps: exp.protocol.steps.length,
       instructorCode: code.toUpperCase(),
+      userId: user?.id ?? null,
     },
-    update: { instructorCode: code.toUpperCase(), studentName: student_name ?? "Student" },
+    update: { instructorCode: code.toUpperCase(), studentName: attributedName, userId: user?.id ?? null },
   });
-  upsertSession({ sessionId: session_id, studentName: student_name ?? "Student", experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length });
-  console.log(`[ROUTE /student/join] ✓ Joined: session_id=${session_id} experiment=${exp.id} name="${student_name}" instructor_code=${code}`);
+  upsertSession({ sessionId: session_id, studentName: attributedName, experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length });
+  console.log(`[ROUTE /student/join] ✓ Joined: session_id=${session_id} experiment=${exp.id} user=${user?.email ?? "?"} name="${attributedName}" instructor_code=${code}`);
   return c.json({ ok: true, experiment_id: exp.id, experiment_name: exp.name, session_name: instrSession.session_name });
+});
+
+// ─── Student history ─────────────────────────────────────────────────
+// Sessions are attributed to the authenticated account, so a student's record
+// follows them across devices instead of living in one browser's sessionStorage.
+app.get("/student/history", async (c) => {
+  const user = c.get("user");
+  if (!user?.id) return c.json([]);
+  const rows = await db.labSession.findMany({
+    where: { userId: user.id },
+    orderBy: { updatedAt: "desc" },
+    take: 30,
+  });
+  return c.json(
+    rows.map((row) => {
+      const steps = (row.steps as unknown as StepRecord[]) ?? [];
+      return {
+        session_id: row.id,
+        experiment_id: row.experimentId,
+        experiment_name: row.experimentName,
+        status: row.status,
+        current_step: row.currentStep,
+        total_steps: row.totalSteps,
+        steps_completed: steps.filter((s) => s.state === "completed").length,
+        deviation_percent: row.deviationPercent,
+        prelab_score: row.prelabScore,
+        safety_alert_count: row.safetyAlertCount,
+        override_count: steps.filter((s) => s.manual_override).length,
+        started_at: row.createdAt.toISOString(),
+        updated_at: row.updatedAt.toISOString(),
+      };
+    }),
+  );
+});
+
+// ─── Pacing / integrity timeline ─────────────────────────────────────
+// Uses the completed_at timestamps the store has always recorded. Catches a
+// fraud mode the vision pipeline structurally cannot: valid photos of someone
+// else's apparatus still cannot beat the clock.
+app.get("/lab/:sessionId/pacing", async (c) => {
+  const { sessionId } = c.req.param();
+  const session = await hydrateSession(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+  const row = await db.labSession.findUnique({ where: { id: sessionId }, select: { createdAt: true } });
+  const exp = getExperiment(session.experimentId);
+  return c.json(analysePacing(session.steps, exp.protocol, row?.createdAt ?? new Date()));
+});
+
+// ─── Tamper-evident safety log ───────────────────────────────────────
+app.get("/lab/:sessionId/audit", async (c) => {
+  const { sessionId } = c.req.param();
+  const session = await hydrateSession(sessionId);
+  if (!session) return c.json({ error: "Session not found" }, 404);
+  const chain = buildChain(session.safetyLog);
+  return c.json({ chain, verification: verifyChain(chain), student_name: session.studentName });
+});
+
+// ─── Risk ranking across a session ───────────────────────────────────
+// Ranks who the instructor should walk over to first, and sets a per-student
+// auto-verification bar so scarce attention goes where the risk actually is.
+app.get("/instructor/sessions/:code/risk", async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const rows = await db.labSession.findMany({ where: { instructorCode: code } });
+
+  const assessments = await Promise.all(
+    rows.map(async (row) => {
+      const steps = (row.steps as unknown as StepRecord[]) ?? [];
+      const exp = getExperiment(row.experimentId);
+      const pacing = analysePacing(steps, exp.protocol, row.createdAt);
+      return {
+        ...assessRisk({
+          sessionId: row.id,
+          studentName: row.studentName,
+          steps,
+          safetyAlertCount: row.safetyAlertCount,
+          deviationPercent: row.deviationPercent,
+          prelabPassed: row.prelabPassed,
+          pacingFlagged: pacing.flagged_count,
+        }),
+        pacing_verdict: pacing.verdict,
+        integrity_score: pacing.integrity_score,
+        current_step: row.currentStep,
+        total_steps: row.totalSteps,
+      };
+    }),
+  );
+
+  assessments.sort((a, b) => b.score - a.score);
+  return c.json(assessments);
 });
 
 // ─── Lab summary & report ────────────────────────────────────────────
