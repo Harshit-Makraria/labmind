@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ExperimentCard } from "@/components/experiments/ExperimentCard";
+import { ErrorState } from "@/components/ui/data-states";
 import { useStartLab } from "@/hooks/useStartLab";
 import { api } from "@/lib/api-client";
 
@@ -20,7 +21,7 @@ function fileToBase64(file: File): Promise<string> {
 
 export default function LibraryPage() {
   const start = useStartLab();
-  const { data: experiments, isLoading } = useQuery({ queryKey: ["experiments"], queryFn: api.experiments });
+  const { data: experiments, isLoading, isError, isPaused, refetch } = useQuery({ queryKey: ["experiments"], queryFn: api.experiments });
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
@@ -33,6 +34,10 @@ export default function LibraryPage() {
     }
     setFileName(file.name);
     setPdfBase64(await fileToBase64(file));
+  }
+
+  if (isError || isPaused) {
+    return <ErrorState title="Couldn't load the experiment library" onRetry={() => refetch()} offline={isPaused} />;
   }
 
   return (

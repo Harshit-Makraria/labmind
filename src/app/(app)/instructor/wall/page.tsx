@@ -3,7 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Radio } from "lucide-react";
 import { useState } from "react";
+import { ErrorState } from "@/components/ui/data-states";
 import type { InstructorSession, RiskAssessment } from "@/lib/types";
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  return res.json();
+}
 
 /**
  * Bench wall display — designed to be projected and read from across a lab.
@@ -41,19 +48,23 @@ export default function WallPage() {
 
   const { data: sessions = [] } = useQuery<InstructorSession[]>({
     queryKey: ["instructor-sessions"],
-    queryFn: async () => (await fetch("/api/instructor/sessions", { cache: "no-store" })).json(),
+    queryFn: () => getJson("/api/instructor/sessions"),
   });
 
   const active = code || sessions[0]?.code || "";
 
-  const { data: students = [], isLoading, dataUpdatedAt } = useQuery<RiskAssessment[]>({
+  const { data: students = [], isLoading, isError, isPaused, refetch, dataUpdatedAt } = useQuery<RiskAssessment[]>({
     queryKey: ["risk", active],
-    queryFn: async () => (await fetch(`/api/instructor/sessions/${active}/risk`, { cache: "no-store" })).json(),
+    queryFn: () => getJson(`/api/instructor/sessions/${active}/risk`),
     enabled: !!active,
     refetchInterval: 4000,
   });
 
   const alerts = students.filter((s) => s.band === "high" || s.band === "elevated").length;
+
+  if (isError || isPaused) {
+    return <ErrorState title="Couldn't load the bench" onRetry={() => refetch()} offline={isPaused} />;
+  }
 
   return (
     <div className="space-y-4">

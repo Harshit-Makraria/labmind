@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, BookOpen, Lightbulb, Loader2, Star, Target, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
+import { ErrorState } from "@/components/ui/data-states";
 import type { LearningSummary } from "@/lib/types";
 
 interface Benchmark { class_avg_deviation: number | null; your_deviation: number | null; percentile: number | null; peer_count: number; }
@@ -11,9 +12,13 @@ interface Benchmark { class_avg_deviation: number | null; your_deviation: number
 export default function SummaryPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
 
-  const { data } = useQuery<LearningSummary>({
+  const { data, isError, isPaused, refetch } = useQuery<LearningSummary>({
     queryKey: ["summary", sessionId],
-    queryFn: async () => (await fetch(`/api/lab/${sessionId}/summary`, { cache: "no-store" })).json(),
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/${sessionId}/summary`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Failed to load summary: ${res.status}`);
+      return res.json();
+    },
   });
 
   const { data: benchmark } = useQuery<Benchmark>({
@@ -21,6 +26,14 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
     queryFn: async () => (await fetch(`/api/lab/${sessionId}/benchmark`)).json(),
     enabled: !!data,
   });
+
+  if (isError || isPaused) {
+    return (
+      <div className="mx-auto max-w-2xl py-4">
+        <ErrorState title="Couldn't load your summary" onRetry={() => refetch()} offline={isPaused} />
+      </div>
+    );
+  }
 
   if (!data) return (
     <div className="flex min-h-[60dvh] items-center justify-center">

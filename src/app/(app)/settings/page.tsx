@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, Eye, EyeOff, FlaskConical, Key, Save, XCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/ui/data-states";
 
 type Provider = "auto" | "claude" | "openai" | "gemini" | "demo";
 
@@ -46,9 +47,13 @@ const PROVIDERS: { value: Provider; label: string; description: string }[] = [
 
 export default function SettingsPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery<LlmStatus>({
+  const { data, isLoading, isError, isPaused, refetch } = useQuery<LlmStatus>({
     queryKey: ["settings-llm"],
-    queryFn: async () => (await fetch("/api/settings/llm")).json(),
+    queryFn: async () => {
+      const res = await fetch("/api/settings/llm");
+      if (!res.ok) throw new Error(`Failed to load settings: ${res.status}`);
+      return res.json();
+    },
   });
 
   const [provider, setProvider] = useState<Provider | null>(null);
@@ -90,6 +95,14 @@ export default function SettingsPage() {
     return (
       <div className="flex h-64 items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-brand)]" />
+      </div>
+    );
+  }
+
+  if (isError || isPaused) {
+    return (
+      <div className="mx-auto max-w-2xl p-6">
+        <ErrorState title="Couldn't load AI settings" onRetry={() => refetch()} offline={isPaused} />
       </div>
     );
   }

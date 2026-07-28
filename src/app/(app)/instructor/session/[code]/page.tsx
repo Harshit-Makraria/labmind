@@ -8,7 +8,14 @@ import {
 import Link from "next/link";
 import { use, useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/ui/data-states";
 import type { SessionSummary, InstructorSession } from "@/lib/types";
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  return res.json();
+}
 
 const STATUS_COLOR: Record<string, string> = {
   active: "bg-[var(--color-brand)] text-white",
@@ -26,14 +33,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
 
-  const { data: session } = useQuery<InstructorSession>({
+  const { data: session, isError: sessionErrored, isPaused: sessionPaused, refetch: refetchSession } = useQuery<InstructorSession>({
     queryKey: ["instructor-session", code],
-    queryFn: async () => (await fetch(`/api/instructor/sessions/${code}`)).json(),
+    queryFn: () => getJson(`/api/instructor/sessions/${code}`),
   });
 
-  const { data: students = [], dataUpdatedAt } = useQuery<SessionSummary[]>({
+  const { data: students = [], dataUpdatedAt, isError: studentsErrored, isPaused: studentsPaused, refetch: refetchStudents } = useQuery<SessionSummary[]>({
     queryKey: ["session-students", code],
-    queryFn: async () => (await fetch(`/api/instructor/sessions/${code}/students`, { cache: "no-store" })).json(),
+    queryFn: () => getJson(`/api/instructor/sessions/${code}/students`),
     refetchInterval: 3000,
   });
 
@@ -68,6 +75,16 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
     if (!with_dev.length) return null;
     return Math.round(with_dev.reduce((a, s) => a + (s.deviation_percent ?? 0), 0) / with_dev.length * 10) / 10;
   })();
+
+  if (sessionErrored || studentsErrored || sessionPaused || studentsPaused) {
+    return (
+      <ErrorState
+        title="Couldn't load this session"
+        onRetry={() => { refetchSession(); refetchStudents(); }}
+        offline={sessionPaused || studentsPaused}
+      />
+    );
+  }
 
   return (
     <div className="space-y-5">

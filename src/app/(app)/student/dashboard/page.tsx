@@ -6,6 +6,7 @@ import { Bot, BookOpen, FileText, FlaskConical, History, Loader2, PlusCircle } f
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { loadSession } from "@/hooks/useSession";
+import { ErrorState } from "@/components/ui/data-states";
 import type { HistoryEntry } from "@/lib/types";
 
 export default function StudentDashboard() {
@@ -117,10 +118,13 @@ export default function StudentDashboard() {
  * sessionStorage — so their record follows them across devices.
  */
 function PastExperiments() {
-  const { data: history = [], isLoading } = useQuery<HistoryEntry[]>({
+  const { data: history = [], isLoading, isError, isPaused, refetch } = useQuery<HistoryEntry[]>({
     queryKey: ["student-history"],
     queryFn: async () => {
       const res = await fetch("/api/student/history", { cache: "no-store" });
+      // A failed fetch must not silently resolve to an empty array — that
+      // reads as "you have no history", not "this failed to load".
+      if (!res.ok) throw new Error(`Failed to load history: ${res.status}`);
       const json = await res.json();
       return Array.isArray(json) ? json : [];
     },
@@ -132,6 +136,10 @@ function PastExperiments() {
         <Loader2 size={20} className="animate-spin text-[var(--color-brand)]" />
       </div>
     );
+  }
+
+  if (isError || isPaused) {
+    return <ErrorState title="Couldn't load your experiments" onRetry={() => refetch()} offline={isPaused} />;
   }
 
   if (history.length === 0) {

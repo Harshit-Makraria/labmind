@@ -4,25 +4,43 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Eye, FlaskConical, PlusCircle, Users } from "lucide-react";
 import Link from "next/link";
+import { ErrorState } from "@/components/ui/data-states";
 import type { InstructorSession, SessionSummary } from "@/lib/types";
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  return res.json();
+}
 
 export default function InstructorDashboard() {
   const [filterRequire, setFilterRequire] = useState(false);
-  const { data: instrSessions } = useQuery<InstructorSession[]>({
+  const { data: instrSessions, isError: sessionsErrored, isPaused: sessionsPaused, refetch: refetchSessions } = useQuery<InstructorSession[]>({
     queryKey: ["instructor-sessions"],
-    queryFn: async () => (await fetch("/api/instructor/sessions", { cache: "no-store" })).json(),
+    queryFn: () => getJson("/api/instructor/sessions"),
     refetchInterval: 5000,
   });
-  const { data: students } = useQuery<SessionSummary[]>({
+  const { data: students, isError: studentsErrored, isPaused: studentsPaused, refetch: refetchStudents } = useQuery<SessionSummary[]>({
     queryKey: ["sessions"],
-    queryFn: async () => (await fetch("/api/dashboard/sessions", { cache: "no-store" })).json(),
+    queryFn: () => getJson("/api/dashboard/sessions"),
     refetchInterval: 5000,
   });
   const { data: verifyList } = useQuery<{ length: number }>({
     queryKey: ["verify-count"],
-    queryFn: async () => (await fetch("/api/instructor/verify?status=pending", { cache: "no-store" })).json(),
+    queryFn: () => getJson("/api/instructor/verify?status=pending"),
     refetchInterval: 4000,
   });
+
+  if (sessionsErrored || studentsErrored || sessionsPaused || studentsPaused) {
+    return (
+      <ErrorState
+        title="Couldn't load your dashboard"
+        message="Sessions or student data failed to load. Student devices keep recording locally regardless."
+        onRetry={() => { refetchSessions(); refetchStudents(); }}
+        offline={sessionsPaused || studentsPaused}
+      />
+    );
+  }
 
   const sessions = (instrSessions ?? []).filter((s) => (filterRequire ? s.require_verification : true));
   const allStudents = students ?? [];

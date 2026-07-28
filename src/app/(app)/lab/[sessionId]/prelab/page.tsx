@@ -5,6 +5,7 @@ import { BookOpen, CheckCircle2, ChevronRight, Loader2, XCircle } from "lucide-r
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/ui/data-states";
 import type { PrelabQuiz, QuizResult } from "@/server/tools/prelab-quiz";
 
 export default function PrelabPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -13,9 +14,13 @@ export default function PrelabPage({ params }: { params: Promise<{ sessionId: st
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
 
-  const { data: quiz, isLoading } = useQuery<PrelabQuiz>({
+  const { data: quiz, isLoading, isError, isPaused, refetch } = useQuery<PrelabQuiz>({
     queryKey: ["prelab", sessionId],
-    queryFn: async () => (await fetch(`/api/lab/${sessionId}/prelab`)).json(),
+    queryFn: async () => {
+      const res = await fetch(`/api/lab/${sessionId}/prelab`);
+      if (!res.ok) throw new Error(`Failed to load quiz: ${res.status}`);
+      return res.json();
+    },
   });
 
   const submit = useMutation({
@@ -25,6 +30,17 @@ export default function PrelabPage({ params }: { params: Promise<{ sessionId: st
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        // The idempotency guard on the server returns this when a student
+        // resubmits a quiz they already passed — send them onward instead of
+        // crashing on a QuizResult shape the error body doesn't actually have.
+        if (body?.error === "Pre-lab already completed") {
+          router.push(`/lab/${sessionId}/overview`);
+          throw new Error("Already completed — continuing to the experiment.");
+        }
+        throw new Error(body?.error ?? `Failed to submit: ${res.status}`);
+      }
       return res.json() as Promise<QuizResult>;
     },
     onSuccess: setResult,
@@ -39,6 +55,14 @@ export default function PrelabPage({ params }: { params: Promise<{ sessionId: st
       </div>
     </div>
   );
+
+  if (isError || isPaused) {
+    return (
+      <div className="mx-auto max-w-xl py-4">
+        <ErrorState title="Couldn't load the pre-lab quiz" onRetry={() => refetch()} offline={isPaused} />
+      </div>
+    );
+  }
 
   if (!quiz) return null;
 

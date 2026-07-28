@@ -3,12 +3,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { Download, FileText, Filter } from "lucide-react";
 import { useState } from "react";
+import { ErrorState } from "@/components/ui/data-states";
 import type { SessionSummary } from "@/lib/types";
 
 export default function ReportsPage() {
-  const { data: sessions } = useQuery<SessionSummary[]>({
+  const { data: sessions, isError, isPaused, refetch } = useQuery<SessionSummary[]>({
     queryKey: ["sessions"],
-    queryFn: async () => (await fetch("/api/dashboard/sessions", { cache: "no-store" })).json(),
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/sessions", { cache: "no-store" });
+      if (!res.ok) throw new Error(`Failed: ${res.status}`);
+      return res.json();
+    },
   });
   const [filter, setFilter] = useState({ student: "", experiment: "" });
 
@@ -16,6 +21,10 @@ export default function ReportsPage() {
     (filter.student === "" || s.student_name.toLowerCase().includes(filter.student.toLowerCase())) &&
     (filter.experiment === "" || s.experiment_name.toLowerCase().includes(filter.experiment.toLowerCase()))
   );
+
+  if (isError || isPaused) {
+    return <ErrorState title="Couldn't load reports" onRetry={() => refetch()} offline={isPaused} />;
+  }
 
   return (
     <div className="space-y-5">

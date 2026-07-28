@@ -29,6 +29,7 @@ export default function CreateSessionPage() {
           experiment_id: form.experiment_id || undefined,
         }),
       });
+      if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
       return res.json() as Promise<InstructorSession>;
     },
     onSuccess: (s) => setCreated(s),
@@ -173,6 +174,7 @@ export default function CreateSessionPage() {
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ session_id: tempId, pdf_base64: base64 }),
                 });
+                if (!res.ok) throw new Error(`Server error: ${res.status}`);
                 const data = await res.json();
                 if (data.experiment_name) setForm((f) => ({ ...f, experiment_name: data.experiment_name }));
                 // Only claim a parse when the server actually structured the PDF.

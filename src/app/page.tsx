@@ -26,6 +26,8 @@ const HOW_IT_WORKS = [
   { n: "06", role: "AI", title: "Generate reports", body: "Full lab reports — with mistakes diagnosed and badges earned — ready in seconds." },
 ];
 
+const EXPERIMENT_COUNT = 4;
+
 const INSTRUCTOR_BENEFITS = [
   "Spend lab time teaching, not policing",
   "Every student's progress visible at a glance",
@@ -46,16 +48,16 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="sticky top-0 z-40 flex items-center justify-between border-b border-black/8 bg-white/90 px-6 py-4 backdrop-blur">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden shadow-sm">
+          <div className="anim-float flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden shadow-sm">
             <img src="/logo2.png" alt="LabMind" className="h-9 w-9 object-contain" />
           </div>
           <span className="text-xl font-extrabold">LabMind</span>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/signup" className="rounded-lg px-4 py-2 text-sm font-semibold text-[#5b6b7d] hover:text-[#0f2942]">
+          <Link href="/signup" className="rounded-lg px-4 py-2 text-sm font-semibold text-[#5b6b7d] transition-colors hover:text-[#0f2942]">
             Sign in
           </Link>
-          <Link href="/signup" className="rounded-lg bg-[#0f2942] px-4 py-2 text-sm font-semibold text-white hover:bg-[#14304f]">
+          <Link href="/signup" className="rounded-lg bg-[#0f2942] px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-[#14304f] active:scale-95">
             Get started free &rarr;
           </Link>
         </div>
@@ -80,10 +82,10 @@ export default function LandingPage() {
               and diagnoses your mistakes &mdash; before they happen.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Link href="/signup" className="inline-flex items-center gap-2 rounded-xl bg-[#2f9e6f] px-6 py-3.5 font-semibold text-white shadow-lg hover:brightness-110">
+              <Link href="/signup" className="inline-flex items-center gap-2 rounded-xl bg-[#2f9e6f] px-6 py-3.5 font-semibold text-white shadow-lg transition-all hover:brightness-110 active:scale-[0.98]">
                 I&apos;m an instructor <ArrowRight size={18} />
               </Link>
-              <Link href="/signup" className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-6 py-3.5 font-semibold text-white backdrop-blur hover:bg-white/20">
+              <Link href="/signup" className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-6 py-3.5 font-semibold text-white backdrop-blur transition-all hover:bg-white/20 active:scale-[0.98]">
                 I&apos;m a student <ArrowRight size={18} />
               </Link>
             </div>
@@ -95,8 +97,12 @@ export default function LandingPage() {
       {/* Social proof strip */}
       <section className="border-b border-black/8 bg-[#f8fafc] px-6 py-4">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-6 text-sm text-[#5b6b7d]">
-          {["3 experiments ready", "10 AI agent tools", "Real-time safety checks", "Auto PDF reports", "Zero setup"].map((t) => (
-            <span key={t} className="flex items-center gap-1.5 font-semibold">
+          {[`${EXPERIMENT_COUNT} experiments ready`, "10 AI agent tools", "Real-time safety checks", "Auto PDF reports", "Zero setup"].map((t, i) => (
+            <span
+              key={t}
+              className="anim-fade-up flex items-center gap-1.5 font-semibold"
+              style={{ animationDelay: `${i * 0.06}s` }}
+            >
               <CheckCircle2 size={15} className="text-[#2f9e6f]" /> {t}
             </span>
           ))}
@@ -106,14 +112,18 @@ export default function LandingPage() {
       {/* Features */}
       <section className="px-6 py-20">
         <div className="mx-auto max-w-5xl">
-          <div className="mb-12 text-center">
+          <div className="anim-fade-up mb-12 text-center">
             <h2 className="text-3xl font-extrabold">Everything the lab needs. Nothing it doesn&apos;t.</h2>
             <p className="mt-3 text-[#5b6b7d]">Six AI-powered features that work together from first step to final report.</p>
           </div>
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map((f) => (
-              <div key={f.title} className="rounded-2xl border border-black/8 bg-white p-6 shadow-sm">
-                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#2b6cb0]/10 text-[#2b6cb0]">
+            {FEATURES.map((f, i) => (
+              <div
+                key={f.title}
+                className="anim-fade-up group rounded-2xl border border-black/8 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-[#2b6cb0]/25 hover:shadow-[0_14px_34px_-16px_rgba(15,41,66,0.35)]"
+                style={{ animationDelay: `${i * 0.06}s` }}
+              >
+                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#2b6cb0]/10 text-[#2b6cb0] transition-transform duration-200 group-hover:scale-110">
                   <f.icon size={22} />
                 </div>
                 <h3 className="font-bold">{f.title}</h3>
@@ -127,14 +137,18 @@ export default function LandingPage() {
       {/* How it works */}
       <section className="bg-[#f8fafc] px-6 py-20">
         <div className="mx-auto max-w-5xl">
-          <div className="mb-12 text-center">
+          <div className="anim-fade-up mb-12 text-center">
             <h2 className="text-3xl font-extrabold">How it works</h2>
             <p className="mt-3 text-[#5b6b7d]">From session creation to final report in 6 steps.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {HOW_IT_WORKS.map((s, i) => (
-              <div key={i} className="relative rounded-2xl border border-black/8 bg-white p-6 shadow-sm">
-                <span className="text-4xl font-extrabold text-[#2b6cb0]/15">{s.n}</span>
+              <div
+                key={i}
+                className="anim-fade-up relative rounded-2xl border border-black/8 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_14px_34px_-16px_rgba(15,41,66,0.35)]"
+                style={{ animationDelay: `${i * 0.07}s` }}
+              >
+                <span className="font-data text-4xl font-extrabold text-[#2b6cb0]/15">{s.n}</span>
                 <span className="ml-2 rounded-full bg-[#2f9e6f]/12 px-2 py-0.5 text-xs font-bold text-[#2f9e6f]">{s.role}</span>
                 <h3 className="mt-2 font-bold">{s.title}</h3>
                 <p className="mt-1 text-sm leading-relaxed text-[#5b6b7d]">{s.body}</p>
@@ -147,35 +161,35 @@ export default function LandingPage() {
       {/* Benefits split */}
       <section className="px-6 py-20">
         <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2">
-          <div className="rounded-2xl bg-gradient-to-br from-[#0f2942] to-[#1c4f86] p-8 text-white">
+          <div className="anim-slide-in rounded-2xl bg-gradient-to-br from-[#0f2942] to-[#1c4f86] p-8 text-white transition-transform duration-200 hover:-translate-y-1">
             <div className="mb-4 flex items-center gap-2">
               <LayoutDashboard size={20} />
               <h3 className="text-xl font-bold">For instructors</h3>
             </div>
             <ul className="space-y-3">
-              {INSTRUCTOR_BENEFITS.map((b) => (
-                <li key={b} className="flex items-start gap-2 text-white/80">
+              {INSTRUCTOR_BENEFITS.map((b, i) => (
+                <li key={b} className="anim-fade-up flex items-start gap-2 text-white/80" style={{ animationDelay: `${0.1 + i * 0.05}s` }}>
                   <ChevronRight size={16} className="mt-0.5 shrink-0 text-[#2f9e6f]" /> {b}
                 </li>
               ))}
             </ul>
-            <Link href="/signup" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold hover:bg-white/25">
+            <Link href="/signup" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-white/25">
               Create your first session <ArrowRight size={16} />
             </Link>
           </div>
-          <div className="rounded-2xl border border-black/8 bg-white p-8 shadow-sm">
+          <div className="anim-slide-in stagger-1 rounded-2xl border border-black/8 bg-white p-8 shadow-sm transition-transform duration-200 hover:-translate-y-1">
             <div className="mb-4 flex items-center gap-2 text-[#2b6cb0]">
               <Users size={20} />
               <h3 className="text-xl font-bold text-[#0f2942]">For students</h3>
             </div>
             <ul className="space-y-3">
-              {STUDENT_BENEFITS.map((b) => (
-                <li key={b} className="flex items-start gap-2 text-[#5b6b7d]">
+              {STUDENT_BENEFITS.map((b, i) => (
+                <li key={b} className="anim-fade-up flex items-start gap-2 text-[#5b6b7d]" style={{ animationDelay: `${0.16 + i * 0.05}s` }}>
                   <ChevronRight size={16} className="mt-0.5 shrink-0 text-[#2f9e6f]" /> {b}
                 </li>
               ))}
             </ul>
-            <Link href="/signup" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0f2942] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#14304f]">
+            <Link href="/signup" className="mt-6 inline-flex items-center gap-2 rounded-xl bg-[#0f2942] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#14304f]">
               Join a session <ArrowRight size={16} />
             </Link>
           </div>
@@ -184,17 +198,19 @@ export default function LandingPage() {
 
       {/* CTA */}
       <section className="bg-gradient-to-br from-[#0f2942] to-[#1c4f86] px-6 py-20 text-center text-white">
-        <div className="mx-auto max-w-2xl">
+        <div className="anim-fade-up mx-auto max-w-2xl">
           <div className="mb-4 flex justify-center gap-1 text-yellow-300">
-            {[...Array(5)].map((_, i) => <Star key={i} size={20} fill="currentColor" />)}
+            {[...Array(5)].map((_, i) => (
+              <Star key={i} size={20} fill="currentColor" className="anim-scale-in" style={{ animationDelay: `${i * 0.08}s` }} />
+            ))}
           </div>
           <h2 className="text-3xl font-extrabold">Ready to transform your lab?</h2>
           <p className="mt-3 text-white/70">No installation. No sign-up. Works on any device with a camera.</p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/signup" className="rounded-xl bg-[#2f9e6f] px-6 py-3.5 font-semibold text-white shadow-lg hover:brightness-110">
+            <Link href="/signup" className="rounded-xl bg-[#2f9e6f] px-6 py-3.5 font-semibold text-white shadow-lg transition-all hover:brightness-110 active:scale-[0.98]">
               Start as instructor
             </Link>
-            <Link href="/signup" className="rounded-xl border border-white/25 bg-white/10 px-6 py-3.5 font-semibold text-white backdrop-blur hover:bg-white/20">
+            <Link href="/signup" className="rounded-xl border border-white/25 bg-white/10 px-6 py-3.5 font-semibold text-white backdrop-blur transition-all hover:bg-white/20 active:scale-[0.98]">
               Join as student
             </Link>
           </div>

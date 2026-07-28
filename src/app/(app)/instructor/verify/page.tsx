@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Flag, Target, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/ui/data-states";
 import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import type { AccuracyReport, VerificationEntry } from "@/lib/types";
 
@@ -11,7 +12,7 @@ export default function VerifyPage() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { data } = useQuery<VerificationEntry[]>({
+  const { data, isError, isPaused, refetch } = useQuery<VerificationEntry[]>({
     queryKey: ["verifications"],
     queryFn: async () => {
       const res = await fetch("/api/instructor/verify", { cache: "no-store" });
@@ -55,6 +56,10 @@ export default function VerifyPage() {
   const oldestMinutes = pending.length
     ? Math.max(0, Math.round((Date.now() - new Date(pending[pending.length - 1].submitted_at).getTime()) / 60000))
     : 0;
+
+  if (isError || isPaused) {
+    return <ErrorState title="Couldn't load the verification queue" onRetry={() => refetch()} offline={isPaused} />;
+  }
 
   return (
     <div className="space-y-5">
