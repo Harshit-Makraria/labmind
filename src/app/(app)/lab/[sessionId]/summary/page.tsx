@@ -34,13 +34,13 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
   return (
     <div className="mx-auto max-w-2xl space-y-5 py-2">
       {/* Score hero */}
-      <div className="card overflow-hidden p-0">
+      <div className="card anim-fade-up overflow-hidden p-0">
         <div className="flex flex-col items-center gap-2 p-7 text-center" style={{ background: `linear-gradient(135deg, ${scoreColor}22, ${scoreColor}11)` }}>
-          <Trophy size={40} style={{ color: scoreColor }} />
+          <Trophy size={40} className="anim-float" style={{ color: scoreColor }} />
           <h1 className="text-2xl font-extrabold text-[var(--color-navy)]">Experiment Complete!</h1>
           <p className="text-[var(--color-muted)]">{data.experiment_name}</p>
           <div className="mt-3 flex items-baseline gap-1">
-            <span className="text-6xl font-extrabold" style={{ color: scoreColor }}>{data.performance_score}</span>
+            <span className="font-data anim-scale-in text-6xl font-extrabold" style={{ color: scoreColor }}>{data.performance_score}</span>
             <span className="text-xl text-[var(--color-muted)]">/100</span>
           </div>
           <p className="text-sm font-semibold text-[var(--color-muted)]">Performance score</p>
@@ -53,9 +53,9 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
             { label: "Accuracy", value: `${data.accuracy_score}%` },
             { label: "Safety alerts", value: data.safety_alerts },
             { label: "Overrides", value: data.overrides },
-          ].map((s) => (
-            <div key={s.label} className="py-3 text-center">
-              <p className="text-lg font-extrabold text-[var(--color-navy)]">{s.value}</p>
+          ].map((s, i) => (
+            <div key={s.label} className="anim-fade-up py-3 text-center" style={{ animationDelay: `${0.1 + i * 0.05}s` }}>
+              <p className="font-data text-lg font-extrabold text-[var(--color-navy)]">{s.value}</p>
               <p className="text-xs text-[var(--color-muted)]">{s.label}</p>
             </div>
           ))}
@@ -63,13 +63,17 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
       </div>
 
       {/* Badges */}
-      <div className="card p-5">
+      <div className="card anim-fade-up stagger-1 p-5">
         <h3 className="mb-3 flex items-center gap-2 font-bold text-[var(--color-navy)]">
           <Star size={18} className="text-[var(--color-warning)]" /> Badges earned {earnedBadges.length}/{data.badges.length}
         </h3>
         <div className="grid grid-cols-3 gap-3">
-          {data.badges.map((b) => (
-            <div key={b.id} className={`flex flex-col items-center gap-1.5 rounded-xl p-3 text-center ${b.earned ? "bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30" : "bg-black/[0.03] opacity-40"}`}>
+          {data.badges.map((b, i) => (
+            <div
+              key={b.id}
+              className={`card-hover anim-fade-up flex flex-col items-center gap-1.5 rounded-xl p-3 text-center ${b.earned ? "bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30" : "bg-black/[0.03] opacity-40"}`}
+              style={{ animationDelay: `${0.1 + i * 0.06}s` }}
+            >
               <span className="text-2xl">{b.icon}</span>
               <p className="text-xs font-bold text-[var(--color-navy)]">{b.label}</p>
               <p className="text-[10px] text-[var(--color-muted)]">{b.description}</p>
@@ -81,7 +85,7 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
 
       {/* Mistakes detected */}
       {data.mistakes.length > 0 && (
-        <div className="card p-5">
+        <div className="card anim-fade-up stagger-2 p-5">
           <h3 className="mb-3 font-bold text-[var(--color-navy)]">Mistakes detected</h3>
           <ul className="space-y-1.5">
             {data.mistakes.map((m, i) => (
@@ -94,7 +98,7 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
       )}
 
       {/* Concepts learned */}
-      <div className="card p-5">
+      <div className="card anim-fade-up stagger-3 p-5">
         <h3 className="mb-3 flex items-center gap-2 font-bold text-[var(--color-navy)]">
           <BookOpen size={18} className="text-[var(--color-brand)]" /> Concepts learned
         </h3>
@@ -109,21 +113,21 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
 
       {/* Peer benchmarking */}
       {benchmark && benchmark.peer_count > 0 && (
-        <div className="card p-5">
+        <div className="card anim-fade-up stagger-4 p-5">
           <h3 className="mb-3 flex items-center gap-2 font-bold text-[var(--color-navy)]">
             <Users size={18} className="text-[var(--color-brand)]" /> How you compared to the class
           </h3>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="rounded-xl bg-[var(--color-surface)] p-3">
-              <p className="text-xl font-extrabold text-[var(--color-navy)]">{benchmark.your_deviation !== null ? `${benchmark.your_deviation}%` : "—"}</p>
+              <p className="font-data text-xl font-extrabold text-[var(--color-navy)]">{benchmark.your_deviation !== null ? `${benchmark.your_deviation}%` : "—"}</p>
               <p className="text-xs text-[var(--color-muted)]">Your deviation</p>
             </div>
             <div className="rounded-xl bg-[var(--color-surface)] p-3">
-              <p className="text-xl font-extrabold text-[var(--color-navy)]">{benchmark.class_avg_deviation !== null ? `${benchmark.class_avg_deviation}%` : "—"}</p>
+              <p className="font-data text-xl font-extrabold text-[var(--color-navy)]">{benchmark.class_avg_deviation !== null ? `${benchmark.class_avg_deviation}%` : "—"}</p>
               <p className="text-xs text-[var(--color-muted)]">Class average</p>
             </div>
             <div className="rounded-xl bg-[var(--color-surface)] p-3">
-              <p className="text-xl font-extrabold text-[var(--color-accent)]">{benchmark.percentile !== null ? `Top ${100 - benchmark.percentile}%` : "—"}</p>
+              <p className="font-data text-xl font-extrabold text-[var(--color-accent)]">{benchmark.percentile !== null ? `Top ${100 - benchmark.percentile}%` : "—"}</p>
               <p className="text-xs text-[var(--color-muted)]">Percentile</p>
             </div>
           </div>
@@ -132,7 +136,7 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
       )}
 
       {/* Improvement suggestions */}
-      <div className="card p-5">
+      <div className="card anim-fade-up stagger-5 p-5">
         <h3 className="mb-3 flex items-center gap-2 font-bold text-[var(--color-navy)]">
           <Lightbulb size={18} className="text-[var(--color-warning)]" /> Improvement suggestions
         </h3>
@@ -146,11 +150,11 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
       </div>
 
       {/* CTA */}
-      <div className="flex gap-3">
-        <Link href={`/lab/${sessionId}/report`} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--color-navy)] py-3.5 font-semibold text-white">
+      <div className="anim-fade-up stagger-6 flex gap-3">
+        <Link href={`/lab/${sessionId}/report`} className="btn-primary flex-1">
           <Target size={18} /> View full report <ArrowRight size={16} />
         </Link>
-        <Link href="/student/join" className="flex items-center gap-2 rounded-xl border border-black/12 px-4 font-semibold text-[var(--color-navy)]">
+        <Link href="/student/join" className="btn-ghost">
           New lab
         </Link>
       </div>

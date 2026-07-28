@@ -3,7 +3,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { Camera, CheckCircle2, Clock, Loader2, PencilLine, RefreshCw, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ProgressBar } from "@/components/student/ProgressBar";
@@ -23,6 +23,40 @@ function ConfidenceBar({ confidence, tone }: { confidence: number; tone: string 
     <div className="progress-track">
       <div className="progress-fill" style={{ width: `${pct}%`, backgroundColor: tone }} />
       <span className="progress-marker" style={{ left: `${VISION_HIGH_CONFIDENCE * 100}%` }} />
+    </div>
+  );
+}
+
+// These name the ACTUAL server-side pipeline stages (image-quality.ts,
+// image-crop.ts, vision-ensemble.ts, physical-constraints.ts) — not invented
+// theater. The request usually finishes before the cycle completes once.
+const CHECK_STAGES = [
+  "Checking image quality…",
+  "Locating the instrument…",
+  "Reading with the AI ensemble…",
+  "Cross-checking against physics…",
+];
+
+function VerifyingPanel() {
+  const [stage, setStage] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setStage((s) => Math.min(s + 1, CHECK_STAGES.length - 1)), 1100);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="anim-fade-up flex flex-col gap-3 rounded-[var(--radius-btn)] border border-black/[0.06] bg-black/[0.015] p-4">
+      <div className="flex items-center gap-2">
+        <Loader2 size={16} className="animate-spin text-[var(--color-brand)]" />
+        <p className="text-sm font-bold text-[var(--color-navy)]">{CHECK_STAGES[stage]}</p>
+      </div>
+      <div className="progress-track">
+        <div
+          className="progress-fill"
+          style={{ width: `${((stage + 1) / CHECK_STAGES.length) * 100}%`, backgroundColor: "var(--color-brand)" }}
+        />
+      </div>
+      <div className="skeleton h-3 w-3/4" />
+      <div className="skeleton h-3 w-1/2" style={{ animationDelay: "0.15s" }} />
     </div>
   );
 }
@@ -279,7 +313,9 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
           </div>
         )}
 
-        {preview && (!result || result.verification_status === "failed") && (
+        {verify.isPending && <VerifyingPanel />}
+
+        {preview && !verify.isPending && (!result || result.verification_status === "failed") && (
           <div className="flex gap-2">
             <Button
               variant="ghost"
@@ -293,9 +329,8 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
             >
               <RefreshCw size={16} /> Retake
             </Button>
-            <Button onClick={() => verify.mutate()} disabled={verify.isPending} className="flex-[2]">
-              {verify.isPending ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
-              {verify.isPending ? "Checking…" : "Verify with AI"}
+            <Button onClick={() => verify.mutate()} className="flex-[2]">
+              <CheckCircle2 size={18} /> Verify with AI
             </Button>
           </div>
         )}

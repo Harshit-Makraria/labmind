@@ -207,8 +207,18 @@ export async function listVerifications(status?: VerificationStatus): Promise<Ve
  * Resolve a queued verification AND push the decision back onto the student's
  * session. Without the second half the student who was told "pending
  * verification" stays blocked forever — approving did nothing they could see.
+ *
+ * `correctedReading` lets the instructor's own read of the photo overrule the
+ * model's — previously approving always silently kept the AI's original
+ * number, so an instructor who disagreed with the value had no way to record
+ * what they actually saw. Their entry becomes the authoritative reading.
  */
-export async function resolveVerification(id: string, status: "approved" | "rejected", comment?: string) {
+export async function resolveVerification(
+  id: string,
+  status: "approved" | "rejected",
+  comment?: string,
+  correctedReading?: number | null,
+) {
   const entry = await db.verificationEntry.update({
     where: { id },
     data: { status, instructorComment: comment ?? null, resolvedAt: new Date() },
@@ -220,16 +230,54 @@ export async function resolveVerification(id: string, status: "approved" | "reje
   });
   if (!lab) return;
 
-  const steps = ((lab.steps as unknown as StepRecord[]) ?? []).map((s) => {
-    if (s.step_number !== entry.stepNumber) return s;
-    return status === "approved"
-      ? { ...s, state: "completed" as const, flagged: false, completed_at: new Date().toISOString() }
-      : { ...s, state: "pending" as const, flagged: true, completed_at: null };
-  });
+  const overridden =
+    status === "approved" &&
+    correctedReading !== undefined &&
+    correctedReading !== null &&
+    correctedReading !== entry.aiReading;
+
+  const existingSteps = (lab.steps as unknown as StepRecord[]) ?? [];
+  const applyDecision = (s: StepRecord): StepRecord => {
+    if (status !== "approved") {
+      return { ...s, state: "pending", flagged: true, completed_at: null };
+    }
+    return {
+      ...s,
+      state: "completed",
+      flagged: false,
+      completed_at: new Date().toISOString(),
+      // The instructor's own reading replaces the AI's when they disagree —
+      // it becomes what the student's report and downstream analysis use.
+      vision_reading: overridden ? (correctedReading as number) : s.vision_reading,
+    };
+  };
+
+  const hasRecord = existingSteps.some((s) => s.step_number === entry.stepNumber);
+  const steps = hasRecord
+    ? existingSteps.map((s) => (s.step_number === entry.stepNumber ? applyDecision(s) : s))
+    : // Defensive: a step record should always exist by the time a verification
+      // is resolved (upsertSession blanks the full array on join), but if one is
+      // ever missing — corrupted state, a hand-seeded fixture — synthesize it
+      // rather than silently discarding the instructor's decision.
+      [
+        ...existingSteps,
+        applyDecision({
+          step_number: entry.stepNumber,
+          state: "pending",
+          flagged: false,
+          vision_attempts: 1,
+          vision_reading: entry.aiReading,
+          vision_pass: null,
+          manual_override: null,
+          completed_at: null,
+        }),
+      ].sort((a, b) => a.step_number - b.step_number);
 
   const note =
     status === "approved"
-      ? `✅ Instructor approved step ${entry.stepNumber}${comment ? ` — ${comment}` : ""}`
+      ? overridden
+        ? `✅ Instructor corrected step ${entry.stepNumber} to ${correctedReading} (AI read ${entry.aiReading ?? "—"})${comment ? ` — ${comment}` : ""}`
+        : `✅ Instructor approved step ${entry.stepNumber}${comment ? ` — ${comment}` : ""}`
       : `❌ Instructor rejected step ${entry.stepNumber} — redo this step${comment ? ` — ${comment}` : ""}`;
 
   const notes = [...(((lab.notes as unknown as string[]) ?? [])), note];

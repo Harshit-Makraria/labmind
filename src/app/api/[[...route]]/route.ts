@@ -659,7 +659,8 @@ app.get("/instructor/verify", async (c) => {
 app.post("/instructor/verify", async (c) => {
   const body = await c.req.json();
   if (body.action === "resolve") {
-    await resolveVerification(body.id, body.status, body.comment);
+    const corrected = typeof body.corrected_reading === "number" ? body.corrected_reading : null;
+    await resolveVerification(body.id, body.status, body.comment, corrected);
     return c.json({ ok: true });
   }
   const entry = await submitVerification({

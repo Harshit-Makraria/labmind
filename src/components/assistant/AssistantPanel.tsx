@@ -162,7 +162,7 @@ function EmptyState({ onPick, suggestions }: { onPick: (s: string) => void; sugg
 
 function UserBubble({ text }: { text: string }) {
   return (
-    <div className="fade-in flex justify-end gap-2">
+    <div className="anim-fade-up flex justify-end gap-2">
       <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-[var(--color-navy)] px-4 py-2.5 text-[15px] text-white">
         {text}
       </div>
@@ -175,7 +175,7 @@ function UserBubble({ text }: { text: string }) {
 
 function AssistantBubble({ msg }: { msg: ChatMessage }) {
   return (
-    <div className="fade-in flex gap-2">
+    <div className="anim-fade-up flex gap-2">
       <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--color-brand)] to-[var(--color-accent)] text-white">
         <Bot size={15} />
       </div>
@@ -190,32 +190,45 @@ function AssistantBubble({ msg }: { msg: ChatMessage }) {
 }
 
 function PendingBubble({ pending }: { pending: Pending }) {
+  // Before the agent has planned anything, show the same three-dot typing
+  // indicator every chat product uses — it reads as "alive" even before the
+  // first real signal (plan/tool call) arrives.
+  const justStarted = !pending.plan && pending.trace.length === 0 && !pending.answer;
+
   return (
-    <div className="fade-in flex gap-2">
+    <div className="anim-fade-up flex gap-2">
       <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--color-brand)] to-[var(--color-accent)] text-white">
         <Bot size={15} />
       </div>
-      <div className="max-w-[82%] space-y-2">
-        <div className="rounded-xl border border-[var(--color-brand)]/20 bg-[var(--color-brand)]/[0.04] p-2.5 text-xs">
-          <div className="flex items-center gap-1.5 font-semibold text-[var(--color-brand)]">
-            <Cpu size={13} className="animate-pulse" /> {pending.plan || "Thinking…"}
-          </div>
-          {pending.trace.map((t, i) => (
-            <div key={i} className="mt-1 flex items-start gap-1.5 text-[var(--color-muted)]">
-              <Wrench size={12} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
-              <span>
-                <span className="font-mono font-semibold text-[var(--color-navy)]">{t.tool}</span> {t.summary}
-              </span>
-            </div>
-          ))}
+      {justStarted ? (
+        <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm ring-1 ring-black/5">
+          <span className="typing-dot" />
+          <span className="typing-dot" style={{ animationDelay: "0.15s" }} />
+          <span className="typing-dot" style={{ animationDelay: "0.3s" }} />
         </div>
-        {pending.answer && (
-          <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-4 py-2.5 text-[15px] text-[var(--color-ink)] shadow-sm ring-1 ring-black/5">
-            {pending.answer}
-            <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-[var(--color-brand)]/60 align-middle" />
+      ) : (
+        <div className="max-w-[82%] space-y-2">
+          <div className="anim-scale-in rounded-xl border border-[var(--color-brand)]/20 bg-[var(--color-brand)]/[0.04] p-2.5 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-[var(--color-brand)]">
+              <Cpu size={13} className="animate-pulse" /> {pending.plan || "Thinking…"}
+            </div>
+            {pending.trace.map((t, i) => (
+              <div key={i} className="anim-fade-up mt-1 flex items-start gap-1.5 text-[var(--color-muted)]" style={{ animationDelay: `${i * 0.08}s` }}>
+                <Wrench size={12} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
+                <span>
+                  <span className="font-data font-semibold text-[var(--color-navy)]">{t.tool}</span> {t.summary}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+          {pending.answer && (
+            <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-4 py-2.5 text-[15px] text-[var(--color-ink)] shadow-sm ring-1 ring-black/5">
+              {pending.answer}
+              <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-[var(--color-brand)]/60 align-middle" />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
