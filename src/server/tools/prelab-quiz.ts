@@ -1,6 +1,7 @@
 import "server-only";
 import { completeJSON } from "@/server/llm/provider";
 import { effectiveDemo } from "@/server/config";
+import { db } from "@/server/db";
 import type { Protocol } from "@/lib/types";
 
 export interface QuizQuestion {
@@ -35,8 +36,51 @@ const DEMO_QUIZ: PrelabQuiz = {
   ],
 };
 
+/**
+ * Generated quizzes are pinned per experiment, in-process AND in the DB.
+ *
+ * The GET handler serves the quiz (answers stripped) and the POST handler
+ * re-derives it to score the submission. Without pinning, the LLM produces a
+ * DIFFERENT quiz on each call while reusing the same q1…q5 ids — so students
+ * were graded against an answer key for questions they never saw. The DB layer
+ * matters because on serverless the GET and POST can land on different
+ * instances, where an in-memory cache alone is cold.
+ */
+const quizCache = new Map<string, PrelabQuiz>();
+const quizKey = (experimentId: string) => `prelab.quiz.${experimentId}`;
+
+export function clearPrelabQuizCache(experimentId?: string) {
+  if (experimentId) quizCache.delete(experimentId);
+  else quizCache.clear();
+}
+
+function isWellFormed(q: PrelabQuiz): boolean {
+  return (
+    Array.isArray(q.questions) &&
+    q.questions.length > 0 &&
+    q.questions.every(
+      (x) => Array.isArray(x.options) && x.options.length === 4 && x.correct >= 0 && x.correct <= 3,
+    )
+  );
+}
+
 export async function generatePrelabQuiz(protocol: Protocol, experimentId: string): Promise<PrelabQuiz> {
   if (effectiveDemo()) return DEMO_QUIZ;
+
+  const cached = quizCache.get(experimentId);
+  if (cached) return cached;
+
+  // Shared across serverless instances — this is what keeps GET and POST in sync.
+  try {
+    const row = await db.appSetting.findUnique({ where: { key: quizKey(experimentId) } });
+    if (row?.value) {
+      const stored = JSON.parse(row.value) as PrelabQuiz;
+      if (isWellFormed(stored)) {
+        quizCache.set(experimentId, stored);
+        return stored;
+      }
+    }
+  } catch { /* fall through and regenerate */ }
 
   const stepSummary = protocol.steps.slice(0, 5).map((s) => `Step ${s.step_number}: ${s.title} — ${s.instructions.slice(0, 2).join(". ")}`).join("\n");
 
@@ -72,7 +116,16 @@ Return JSON:
   try {
     const raw = await completeJSON(system, user);
     const parsed = JSON.parse(raw) as PrelabQuiz;
-    if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) throw new Error("bad shape");
+    // Reject a malformed quiz (missing options, out-of-range answer index) —
+    // otherwise every answer scores wrong and no student can ever pass.
+    if (!isWellFormed(parsed)) throw new Error("malformed quiz");
+    if (typeof parsed.passing_score !== "number") parsed.passing_score = 60;
+
+    quizCache.set(experimentId, parsed);
+    const value = JSON.stringify(parsed);
+    await db.appSetting
+      .upsert({ where: { key: quizKey(experimentId) }, create: { key: quizKey(experimentId), value }, update: { value } })
+      .catch(() => { /* in-memory cache still holds it for this instance */ });
     return parsed;
   } catch {
     return DEMO_QUIZ;

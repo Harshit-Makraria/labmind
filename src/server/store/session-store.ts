@@ -92,6 +92,15 @@ function persist(s: StoredSession) {
     .catch((e) => console.error("[session-store] persist failed — data may be lost on restart:", e));
 }
 
+/**
+ * Drop a session from the in-memory cache so the next hydrate re-reads the DB.
+ * Required whenever a row is written outside this module (e.g. an instructor
+ * resolving a verification), otherwise this instance keeps serving a stale copy.
+ */
+export function invalidateSessionCache(id: string) {
+  store().sessions.delete(id);
+}
+
 /** Hydrate a session from DB into the in-memory cache. */
 export async function hydrateSession(id: string): Promise<StoredSession | undefined> {
   if (store().sessions.has(id)) return store().sessions.get(id);

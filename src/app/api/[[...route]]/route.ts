@@ -5,6 +5,8 @@
 import { Hono } from "hono";
 import { handle } from "hono/vercel";
 
+import { auth } from "@/auth";
+
 import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SessionAction, VisionCheckRequest } from "@/lib/types";
 import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
@@ -22,10 +24,10 @@ import { MOCK_SESSIONS } from "@/server/data/mock-sessions";
 import { generatePrelabQuiz, scorePrelabQuiz } from "@/server/tools/prelab-quiz";
 import {
   addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
-  flagDownstreamSteps, getAgentDecisionsFromDB, getSessionDetailFromDB,
+  getAgentDecisionsFromDB, getSessionDetailFromDB,
   getTracesFromDB, hydrateSession, logAgentDecision, manualOverride,
   recordResult, recordSafetyAlert, recordVision, setCurrentStep, setStudentName,
-  upsertSession,
+  skipStep, upsertSession,
 } from "@/server/store/session-store";
 import { db } from "@/server/db";
 import {
@@ -39,7 +41,9 @@ import { exhaustedProviders, anyExhausted } from "@/server/llm/provider-state";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const app = new Hono().basePath("/api");
+type Vars = { user: { id: string; email?: string | null; name?: string | null; role?: string } };
+
+const app = new Hono<{ Variables: Vars }>().basePath("/api");
 
 app.onError((err, c) => {
   console.error("[API error]", err);
@@ -56,6 +60,47 @@ app.use("*", async (_c, next) => {
       loadRuntimeSettings().catch(() => {}),
     ]);
   }
+  return next();
+});
+
+// ─── Authentication ──────────────────────────────────────────────────
+// Next's `middleware.ts` matcher deliberately excludes /api/*, so it provides
+// NO protection here — every route below must be gated in this layer.
+//
+// PUBLIC       : unauthenticated reads with no user data
+// INSTRUCTOR   : prefixes that expose or mutate cross-student data
+// everything else requires a signed-in user of any role.
+
+const PUBLIC_PATHS = ["/api/meta", "/api/experiments"];
+
+const INSTRUCTOR_PREFIXES = [
+  "/api/instructor",
+  "/api/dashboard",
+  "/api/settings",
+];
+
+app.use("*", async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  if (PUBLIC_PATHS.includes(path)) return next();
+
+  const session = await auth().catch((e) => {
+    // A throw here means session resolution itself is broken (not just a
+    // logged-out user) — that would 401 every legitimate request, so make it loud.
+    console.error("[AUTH] session resolution FAILED — all requests will 401:", e);
+    return null;
+  });
+  if (!session?.user) {
+    console.warn(`[AUTH] 401 — unauthenticated request to ${c.req.method} ${path}`);
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const needsInstructor = INSTRUCTOR_PREFIXES.some((p) => path.startsWith(p));
+  if (needsInstructor && session.user.role !== "instructor") {
+    console.warn(`[AUTH] 403 — ${session.user.email} (${session.user.role}) tried ${c.req.method} ${path}`);
+    return c.json({ error: "Forbidden — instructor access required" }, 403);
+  }
+
+  c.set("user", session.user);
   return next();
 });
 
@@ -114,9 +159,14 @@ app.post("/protocol/parse", async (c) => {
 app.post("/safety/check", async (c) => {
   const body = await c.req.json<SafetyCheckRequest>();
   const t0 = Date.now();
+  // Hydrate BEFORE mutating. The store's sync mutators no-op when the session
+  // isn't in this instance's in-memory Map — on serverless that silently threw
+  // away the reagent history and ran the safety engine against an empty list.
+  const prior = body.session_id ? await hydrateSession(body.session_id) : undefined;
+  // Conflicts must be evaluated against the history as it was BEFORE this step's
+  // reagents were merged in, otherwise every reagent trivially matches itself.
+  const history = [...(prior?.reagentHistory ?? [])];
   if (body.session_id) addReagents(body.session_id, body.reagents ?? []);
-  const session = body.session_id ? await hydrateSession(body.session_id) : undefined;
-  const history = session?.reagentHistory ?? [];
   const result = checkSafety(body.reagents ?? [], history);
   if (body.session_id) {
     if (result.conflict) {
@@ -142,6 +192,11 @@ app.post("/vision/check", async (c) => {
   const body = await c.req.json<VisionCheckRequest>();
   const t0 = Date.now();
   console.log(`\n[ROUTE /vision/check] ▶ session=${body.session_id} step=${body.step_number} type=${body.expected?.type} exp_value=${body.expected?.expected_value}`);
+
+  // Hydrate first — recordVision() is a sync store mutator that silently no-ops
+  // when the session isn't in this instance's memory Map. Without this the
+  // attempt counter never increments past 1 and manual override never unlocks.
+  if (body.session_id) await hydrateSession(body.session_id);
 
   const result = await checkVision(body);
   const latency = Date.now() - t0;
@@ -218,7 +273,11 @@ app.post("/results/interpret", async (c) => {
   const body = await c.req.json<InterpretRequest>();
   const t0 = Date.now();
   const result = interpret(body);
-  if (body.session_id) recordResult(body.session_id, result.deviation_percent);
+  // hydrate before the sync mutator, else it no-ops and the final result is lost
+  if (body.session_id) {
+    await hydrateSession(body.session_id);
+    recordResult(body.session_id, result.deviation_percent);
+  }
   recordTrace("result_interpreter", `${body.student_result} ${body.unit} vs ${body.theoretical_value}`, `${result.deviation_percent}% · ${result.severity}`, Date.now() - t0);
   return c.json(result);
 });
@@ -251,7 +310,10 @@ app.post("/session/action", async (c) => {
       break;
     case "skip_step": {
       const affected = flagDownstreamStepsFor(experimentId, action.step_number);
-      flagDownstreamSteps(session_id, action.step_number, affected);
+      // skipStep marks the step itself as "skipped" AND flags the downstream
+      // ones. flagDownstreamSteps only did the latter, so skipped steps stayed
+      // "pending" forever and never showed up in the learning summary.
+      skipStep(session_id, action.step_number, affected);
       setCurrentStep(session_id, action.step_number + 1);
       break;
     }
@@ -549,7 +611,11 @@ app.get("/lab/:sessionId/report", async (c) => {
   return c.json(await buildReport(sessionId));
 });
 
+// Every verb used by a Hono route MUST be re-exported here — Next.js returns
+// 405 for any verb it doesn't see, before the request ever reaches Hono.
+// PATCH was missing, which silently broke saving AI settings and ending a session.
 export const GET = handle(app);
 export const POST = handle(app);
 export const PUT = handle(app);
+export const PATCH = handle(app);
 export const DELETE = handle(app);

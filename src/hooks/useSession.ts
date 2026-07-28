@@ -21,13 +21,32 @@ const key = (id: string) => `labmind:session:${id}`;
 
 export function saveSession(s: ClientSession) {
   if (typeof window === "undefined") return;
-  sessionStorage.setItem(key(s.sessionId), JSON.stringify(s));
+  try {
+    sessionStorage.setItem(key(s.sessionId), JSON.stringify(s));
+  } catch (e) {
+    // Quota exceeded / private-mode storage disabled — the server session is
+    // authoritative, so degrade quietly rather than breaking the flow.
+    console.warn("[useSession] could not persist session to sessionStorage:", e);
+  }
 }
 
 export function loadSession(id: string): ClientSession | null {
   if (typeof window === "undefined") return null;
-  const raw = sessionStorage.getItem(key(id));
-  return raw ? (JSON.parse(raw) as ClientSession) : null;
+  try {
+    const raw = sessionStorage.getItem(key(id));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ClientSession;
+    // A truncated or stale entry would otherwise crash the whole lab page on
+    // render ("client-side exception"). Drop it and start clean instead.
+    if (!parsed?.protocol?.steps?.length) {
+      sessionStorage.removeItem(key(id));
+      return null;
+    }
+    return parsed;
+  } catch {
+    sessionStorage.removeItem(key(id));
+    return null;
+  }
 }
 
 export function useSession(sessionId: string) {

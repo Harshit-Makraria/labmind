@@ -5,7 +5,8 @@
  */
 import "server-only";
 import { db } from "@/server/db";
-import type { InstructorSession, VerificationEntry, VerificationStatus } from "@/lib/types";
+import { invalidateSessionCache } from "@/server/store/session-store";
+import type { InstructorSession, StepRecord, VerificationEntry, VerificationStatus } from "@/lib/types";
 
 // ─── Seed ────────────────────────────────────────────────────────────
 
@@ -136,9 +137,13 @@ export async function createInstructorSession(
     experiment_name: row.experimentName,
     batch: row.batch,
     department: row.department,
+    institution: row.institution,
+    course_code: row.courseCode,
+    status: row.status,
     date: row.date,
     created_at: row.createdAt.toISOString(),
     student_session_ids: [],
+    require_verification: !!meta["require_verification"],
   };
 }
 
@@ -197,11 +202,53 @@ export async function listVerifications(status?: VerificationStatus): Promise<Ve
   return rows.map(rowToEntry);
 }
 
+/**
+ * Resolve a queued verification AND push the decision back onto the student's
+ * session. Without the second half the student who was told "pending
+ * verification" stays blocked forever — approving did nothing they could see.
+ */
 export async function resolveVerification(id: string, status: "approved" | "rejected", comment?: string) {
-  await db.verificationEntry.update({
+  const entry = await db.verificationEntry.update({
     where: { id },
     data: { status, instructorComment: comment ?? null, resolvedAt: new Date() },
   });
+
+  const lab = await db.labSession.findUnique({
+    where: { id: entry.sessionId },
+    select: { steps: true, notes: true, currentStep: true },
+  });
+  if (!lab) return;
+
+  const steps = ((lab.steps as unknown as StepRecord[]) ?? []).map((s) => {
+    if (s.step_number !== entry.stepNumber) return s;
+    return status === "approved"
+      ? { ...s, state: "completed" as const, flagged: false, completed_at: new Date().toISOString() }
+      : { ...s, state: "pending" as const, flagged: true, completed_at: null };
+  });
+
+  const note =
+    status === "approved"
+      ? `✅ Instructor approved step ${entry.stepNumber}${comment ? ` — ${comment}` : ""}`
+      : `❌ Instructor rejected step ${entry.stepNumber} — redo this step${comment ? ` — ${comment}` : ""}`;
+
+  const notes = [...(((lab.notes as unknown as string[]) ?? [])), note];
+
+  await db.labSession.update({
+    where: { id: entry.sessionId },
+    data: {
+      steps: steps as unknown as object,
+      notes: notes as unknown as object,
+      // On approval let the student move past the step they were held on.
+      currentStep:
+        status === "approved"
+          ? Math.max(lab.currentStep, entry.stepNumber + 1)
+          : Math.min(lab.currentStep, entry.stepNumber),
+    },
+  });
+
+  // The in-memory cache is now stale for this session — drop it so the next
+  // read re-hydrates from the DB rather than serving the pre-decision copy.
+  invalidateSessionCache(entry.sessionId);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
