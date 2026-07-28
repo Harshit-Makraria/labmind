@@ -16,7 +16,13 @@
   --color-ink: #0f2942;
   --color-muted: #5b6b7d;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* next/font supplies --font-inter / --font-plex-mono at runtime (self-hosted,
+     no external request, no layout shift); these tokens just alias them so the
+     Tailwind font-sans / font-mono utilities pick up the real loaded fonts. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", monospace;
+
+  --ease-out-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --radius-card: 1.1rem;
   --radius-btn: 0.7rem;
@@ -86,17 +92,21 @@ body {
   color: #aebccd;
   font-weight: 500;
   font-size: 0.95rem;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s var(--ease-out-soft);
   white-space: nowrap;
 }
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
+  transform: translateX(2px);
 }
 .nav-item[data-active="true"] {
   background: linear-gradient(90deg, rgba(43, 108, 176, 0.35), rgba(43, 108, 176, 0.12));
   color: #fff;
   box-shadow: inset 2px 0 0 var(--color-accent-glow);
+}
+.nav-item[data-active="true"]:hover {
+  transform: none;
 }
 
 .main-pane {
@@ -122,6 +132,120 @@ body {
   border: 1px solid rgba(15, 41, 66, 0.07);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
+  transition: transform 0.18s var(--ease-out-soft), box-shadow 0.18s var(--ease-out-soft),
+    border-color 0.18s ease;
+}
+
+/* Interactive card — anything clickable (experiment tiles, history rows). */
+.card-hover {
+  cursor: pointer;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 34px -16px rgba(15, 41, 66, 0.35);
+  border-color: rgba(43, 108, 176, 0.25);
+}
+.card-hover:active {
+  transform: translateY(-1px) scale(0.997);
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────
+   Referenced across the app as plain class names; defining them here (they
+   were previously missing entirely, so those buttons rendered unstyled). */
+.btn-primary,
+.btn-secondary,
+.btn-ghost,
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 46px;
+  padding: 0 1.25rem;
+  border: 0;
+  border-radius: var(--radius-btn);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.15s ease, background 0.15s ease;
+}
+.btn-primary:active,
+.btn-secondary:active,
+.btn-ghost:active,
+.btn-danger:active {
+  transform: scale(0.98);
+}
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-ghost:disabled,
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--color-navy);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 41, 66, 0.1);
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.14);
+}
+
+.btn-secondary {
+  background: var(--color-brand);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 41, 66, 0.1);
+}
+.btn-secondary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-navy);
+  border: 1px solid rgba(15, 41, 66, 0.14);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(15, 41, 66, 0.04);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(229, 62, 62, 0.2);
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* ─── Animated progress bar with an optional target marker ──────────── */
+.progress-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 41, 66, 0.09);
+  overflow: visible;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  animation: barGrow 1s var(--ease-out-soft) both;
+}
+.progress-marker {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 16px;
+  background: var(--color-navy);
+  opacity: 0.45;
+}
+
+/* ─── Circular ring progress (bench-wall status rings) ───────────────── */
+.ring-progress {
+  border-radius: 999px;
+  animation: ringSweep 0.8s var(--ease-out-soft) both;
 }
 
 .glass-topbar {
@@ -197,6 +321,126 @@ body {
   to {
     transform: scale(1.8);
     opacity: 0;
+  }
+}
+
+/* ─── Motion system ─────────────────────────────────────────────────── */
+/* Vocabulary lifted from the LabMind design mockups: entrance animations
+   read as intentional, not decorative — cards rise in, bars grow from zero,
+   rings sweep, alerts pulse. Every rule respects prefers-reduced-motion. */
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(22px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes barGrow {
+  from { width: 0; }
+}
+@keyframes shimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position: 240px 0; }
+}
+@keyframes liveDot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+@keyframes alertPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.45); }
+  50%      { box-shadow: 0 0 0 12px rgba(229, 62, 62, 0); }
+}
+@keyframes ringSweep {
+  from { transform: rotate(-90deg); opacity: 0.4; }
+  to   { transform: none; opacity: 1; }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(-14px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+.anim-fade-up  { animation: fadeUp 0.5s var(--ease-out-soft) both; }
+.anim-slide-up { animation: slideUp 0.5s var(--ease-out-soft) both; }
+.anim-slide-in { animation: slideIn 0.5s var(--ease-out-soft) both; }
+.anim-scale-in { animation: scaleIn 0.35s var(--ease-out-soft) both; }
+.anim-float    { animation: floatY 4.5s ease-in-out infinite; }
+
+/* Staggered entrance for lists/grids — apply alongside .anim-fade-up */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.16s; }
+.stagger-4 { animation-delay: 0.22s; }
+.stagger-5 { animation-delay: 0.28s; }
+.stagger-6 { animation-delay: 0.34s; }
+
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: liveDot 1.4s ease-in-out infinite;
+}
+
+.alert-ring {
+  animation: alertPulse 1.8s ease-out infinite;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(15, 41, 66, 0.07),
+    rgba(15, 41, 66, 0.14),
+    rgba(15, 41, 66, 0.07)
+  );
+  background-size: 200px 100%;
+  animation: shimmer 1.3s linear infinite;
+  border-radius: 0.5rem;
+}
+
+/* Numeric data — readings, confidence %, timestamps, hashes — always render
+   in the monospace face so values feel measured rather than typeset. */
+.font-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ─── Toasts (sonner) ────────────────────────────────────────────────── */
+[data-sonner-toast] {
+  border-radius: 0.9rem !important;
+  border: 1px solid rgba(15, 41, 66, 0.06) !important;
+  border-left-width: 3px !important;
+  box-shadow: 0 10px 30px -14px rgba(15, 41, 66, 0.4) !important;
+  font-family: var(--font-sans) !important;
+  animation: toastIn 0.4s var(--ease-out-soft) both !important;
+}
+[data-sonner-toast][data-type="success"] { border-left-color: var(--color-accent) !important; }
+[data-sonner-toast][data-type="warning"] { border-left-color: var(--color-warning) !important; }
+[data-sonner-toast][data-type="error"]   { border-left-color: var(--color-danger) !important; }
+[data-sonner-toast][data-type="info"]    { border-left-color: var(--color-brand) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up, .anim-slide-up, .anim-slide-in, .anim-scale-in, .anim-float,
+  .live-dot, .alert-ring, .skeleton {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.001ms !important;
   }
 }
 

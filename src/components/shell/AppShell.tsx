@@ -94,7 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="sidebar">
         <div className="flex items-center justify-between px-4 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl overflow-hidden shadow">
+            <div className="anim-float flex h-9 w-9 shrink-0 items-center justify-center rounded-xl overflow-hidden shadow">
               <img src="/logo2.png" alt="LabMind" className="h-9 w-9 object-contain" />
             </div>
             {!collapsed && (
@@ -157,7 +157,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="main-pane">
         <Topbar title={titleFor(pathname)} role={role} meta={meta} />
         <DemoBanner />
-        <div className="content">{children}</div>
+        {/* Keying on pathname replays the entrance animation on every navigation,
+            so moving between pages reads as a deliberate transition rather than
+            an abrupt swap. */}
+        <div className="content anim-fade-up" key={pathname}>{children}</div>
       </div>
 
       <MobileBottomNav nav={nav} pathname={pathname} />
@@ -181,7 +184,12 @@ function Topbar({ title, role, meta }: { title: string; role: Role; meta?: { pro
           </span>
         )}
         <span className="chip bg-[var(--color-brand)]/10 text-[var(--color-brand)]">
-          <Bot size={13} /> {meta?.provider ?? "…"}
+          {meta && !meta.demo && !meta.keys_exhausted ? (
+            <span className="live-dot" aria-hidden />
+          ) : (
+            <Bot size={13} />
+          )}
+          {meta?.provider ?? "…"}
         </span>
         {meta?.keys_exhausted && <span className="chip bg-red-500 text-white">KEY LIMIT</span>}
         {meta?.demo && !meta.keys_exhausted && <span className="chip bg-[var(--color-warning)] text-white">DEMO</span>}

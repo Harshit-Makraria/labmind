@@ -16,6 +16,20 @@ export default function SignupPage() {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Lightweight strength heuristic — length + character variety. Purely a UI
+  // nudge (the server only enforces the 6-char minimum), matching the animated
+  // strength bar in the design mockup.
+  const strength = (() => {
+    if (!password) return 0;
+    let s = Math.min(1, password.length / 12) * 0.6;
+    if (/[A-Z]/.test(password)) s += 0.12;
+    if (/[0-9]/.test(password)) s += 0.14;
+    if (/[^A-Za-z0-9]/.test(password)) s += 0.14;
+    return Math.min(1, s);
+  })();
+  const strengthLabel = strength === 0 ? "" : strength < 0.4 ? "Weak" : strength < 0.75 ? "Good" : "Strong";
+  const strengthColor = strength < 0.4 ? "var(--color-danger)" : strength < 0.75 ? "var(--color-warning)" : "var(--color-accent)";
+
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password || !role) return;
@@ -49,17 +63,16 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-[var(--color-surface)] px-4 py-8">
-      <div className="w-full max-w-sm space-y-6">
-        {/* Logo */}
-        <div className="text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-[var(--color-navy)] shadow-sm">
+      <div className="w-full max-w-sm overflow-hidden rounded-[1.4rem] shadow-[var(--shadow-pop)] anim-fade-up">
+        <div className="hero-gradient px-7 py-8 text-white">
+          <div className="anim-float mx-auto mb-3 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white/12 backdrop-blur">
             <img src="/logo2.png" alt="LabMind" className="h-14 w-14 object-contain" />
           </div>
-          <h1 className="text-2xl font-extrabold text-[var(--color-navy)]">Create your account</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Join LabMind — your AI lab partner</p>
+          <h1 className="text-center text-2xl font-extrabold">Create your account</h1>
+          <p className="mt-1 text-center text-sm text-white/70">Join LabMind — your AI lab partner</p>
         </div>
 
-        <form onSubmit={handleSignup} className="card space-y-4 p-6">
+        <form onSubmit={handleSignup} className="space-y-4 bg-[var(--color-card)] px-7 py-7">
           {/* Role picker */}
           <div>
             <p className="mb-2 text-sm font-semibold text-[var(--color-navy)]">I am a…</p>
@@ -69,10 +82,10 @@ export default function SignupPage() {
                   key={r}
                   type="button"
                   onClick={() => setRole(r)}
-                  className={`flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 text-sm font-semibold transition ${
+                  className={`flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 text-sm font-semibold transition-all duration-150 active:scale-[0.98] ${
                     role === r
                       ? "border-[var(--color-brand)] bg-[var(--color-brand)]/8 text-[var(--color-brand)]"
-                      : "border-black/10 text-[var(--color-muted)] hover:border-black/20"
+                      : "border-black/10 text-[var(--color-muted)] hover:border-black/25 hover:bg-black/[0.02]"
                   }`}
                 >
                   {r === "student" ? <GraduationCap size={20} /> : <BookOpen size={20} />}
@@ -130,19 +143,27 @@ export default function SignupPage() {
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+            {password && (
+              <div className="anim-fade-up mt-2">
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${strength * 100}%`, backgroundColor: strengthColor }} />
+                </div>
+                <p className="mt-1 text-xs" style={{ color: strengthColor }}>{strengthLabel} password</p>
+              </div>
+            )}
           </div>
 
           <button
             type="submit"
             disabled={loading || !email || !password}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-brand)] py-3 font-semibold text-white disabled:opacity-40"
+            className="btn-secondary w-full"
           >
             {loading && <Loader2 size={18} className="animate-spin" />}
             {loading ? "Creating account…" : "Create account"}
           </button>
         </form>
 
-        <p className="text-center text-sm text-[var(--color-muted)]">
+        <p className="bg-[var(--color-card)] px-7 pb-7 text-center text-sm text-[var(--color-muted)]">
           Already have an account?{" "}
           <Link href="/auth" className="font-semibold text-[var(--color-brand)] hover:underline">
             Sign in

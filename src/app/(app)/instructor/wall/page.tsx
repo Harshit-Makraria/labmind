@@ -18,6 +18,24 @@ const TONE: Record<RiskAssessment["band"], string> = {
   low:      "var(--color-accent)",
 };
 
+/** Ring progress via conic-gradient — reads as a status dial, not a bar buried in a card. */
+function ProgressRing({ pct, tone }: { pct: number; tone: string }) {
+  const turn = Math.max(0.02, Math.min(1, pct / 100));
+  return (
+    <span
+      className="ring-progress block h-11 w-11 shrink-0"
+      style={{
+        background: `conic-gradient(${tone} 0turn ${turn}turn, rgba(15,41,66,.1) ${turn}turn 1turn)`,
+      }}
+      aria-hidden
+    >
+      <span className="grid h-full w-full place-items-center rounded-full bg-[var(--color-card)]">
+        <span className="font-data text-[11px] font-semibold" style={{ color: tone }}>{pct}%</span>
+      </span>
+    </span>
+  );
+}
+
 export default function WallPage() {
   const [code, setCode] = useState("");
 
@@ -39,17 +57,18 @@ export default function WallPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="anim-fade-up flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-[var(--color-navy)]">Bench view</h2>
-          <p className="text-sm text-[var(--color-muted)]">
+          <p className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
+            <span className="live-dot text-[var(--color-accent)]" aria-hidden />
             Every student at a glance · updates every 4s
             {dataUpdatedAt ? ` · last ${new Date(dataUpdatedAt).toLocaleTimeString()}` : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {alerts > 0 && (
-            <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger)] px-3 py-1 text-sm font-bold text-white">
+            <span className="alert-ring flex items-center gap-1.5 rounded-full bg-[var(--color-danger)] px-3 py-1 text-sm font-bold text-white">
               <Radio size={13} /> {alerts} need attention
             </span>
           )}
@@ -70,7 +89,7 @@ export default function WallPage() {
       )}
 
       {!isLoading && students.length === 0 && (
-        <div className="card py-16 text-center">
+        <div className="card anim-fade-up py-16 text-center">
           <p className="font-semibold text-[var(--color-navy)]">No students in this session yet</p>
           <p className="mt-1 text-sm text-[var(--color-muted)]">
             {active ? `Share code ${active} with your class.` : "Create a session to begin."}
@@ -79,31 +98,27 @@ export default function WallPage() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {students.map((s) => {
+        {students.map((s, i) => {
           const tone = TONE[s.band];
           const pct = s.total_steps ? Math.round((s.current_step / s.total_steps) * 100) : 0;
           const urgent = s.band === "high";
           return (
             <div
               key={s.session_id}
-              className="card relative overflow-hidden p-4"
-              style={urgent ? { boxShadow: `0 0 0 2px ${tone}` } : undefined}
+              className={`card card-hover anim-fade-up relative overflow-hidden p-4 ${urgent ? "alert-ring" : ""}`}
+              style={{
+                animationDelay: `${Math.min(i, 8) * 0.05}s`,
+                boxShadow: urgent ? `0 0 0 2px ${tone}` : undefined,
+              }}
             >
-              {urgent && (
-                <span
-                  className="absolute right-3 top-3 h-2.5 w-2.5 animate-pulse rounded-full"
-                  style={{ backgroundColor: tone }}
-                  aria-hidden
-                />
-              )}
-
-              <p className="truncate pr-5 text-lg font-bold text-[var(--color-navy)]">{s.student_name}</p>
-              <p className="mt-0.5 text-sm text-[var(--color-muted)]">
-                Step {s.current_step} / {s.total_steps}
-              </p>
-
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-black/[0.07]">
-                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: tone }} />
+              <div className="flex items-center gap-3">
+                <ProgressRing pct={pct} tone={tone} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-bold text-[var(--color-navy)]">{s.student_name}</p>
+                  <p className="font-data text-xs text-[var(--color-muted)]">
+                    Step {s.current_step} / {s.total_steps}
+                  </p>
+                </div>
               </div>
 
               <div className="mt-3 flex items-center justify-between">

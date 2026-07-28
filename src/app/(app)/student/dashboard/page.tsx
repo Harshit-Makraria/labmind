@@ -25,13 +25,13 @@ export default function StudentDashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="hero-gradient rounded-[var(--radius-card)] p-7 text-white">
+      <div className="hero-gradient anim-fade-up rounded-[var(--radius-card)] p-7 text-white">
         <p className="text-white/60">Welcome back</p>
         <h1 className="text-3xl font-extrabold">{name} 👋</h1>
         <p className="mt-1 text-white/75">Your AI lab partner is ready.</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 anim-fade-up stagger-1">
         <DashCard
           href="/student/join"
           icon={PlusCircle}
@@ -151,17 +151,17 @@ function PastExperiments() {
   const accurate = completed.filter((h) => h.deviation_percent !== null && h.deviation_percent <= 5).length;
 
   return (
-    <div className="card space-y-4 p-5">
+    <div className="card anim-fade-up stagger-2 space-y-4 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="font-bold text-[var(--color-navy)]">My experiments</h3>
-        <p className="text-xs text-[var(--color-muted)]">
+        <p className="font-data text-xs text-[var(--color-muted)]">
           {completed.length} completed
           {completed.length > 0 && ` · ${accurate} within 5% of expected`}
         </p>
       </div>
 
       <div className="space-y-2">
-        {history.map((h) => {
+        {history.map((h, i) => {
           const done = h.status === "completed";
           const dev = h.deviation_percent;
           const devColor =
@@ -173,11 +173,12 @@ function PastExperiments() {
             <Link
               key={h.session_id}
               href={done ? `/lab/${h.session_id}/report` : `/lab/${h.session_id}`}
-              className="flex items-center gap-3 rounded-[var(--radius-btn)] border border-black/[0.07] p-3 transition hover:border-[var(--color-brand)]/40"
+              className="card-hover anim-fade-up flex items-center gap-3 rounded-[var(--radius-btn)] border border-black/[0.07] p-3"
+              style={{ animationDelay: `${Math.min(i, 6) * 0.05}s` }}
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-[var(--color-navy)]">{h.experiment_name}</p>
-                <p className="text-xs text-[var(--color-muted)]">
+                <p className="font-data text-xs text-[var(--color-muted)]">
                   {new Date(h.started_at).toLocaleDateString()} · {h.steps_completed}/{h.total_steps} steps
                   {h.safety_alert_count > 0 && ` · ${h.safety_alert_count} safety alert${h.safety_alert_count === 1 ? "" : "s"}`}
                   {h.override_count > 0 && ` · ${h.override_count} override${h.override_count === 1 ? "" : "s"}`}
@@ -186,7 +187,7 @@ function PastExperiments() {
 
               {dev !== null && (
                 <div className="shrink-0 text-right">
-                  <p className="text-sm font-bold" style={{ color: devColor }}>{dev}%</p>
+                  <p className="font-data text-sm font-bold" style={{ color: devColor }}>{dev}%</p>
                   <p className="text-[10px] text-[var(--color-muted)]">deviation</p>
                 </div>
               )}
@@ -219,15 +220,17 @@ function DashCard({ href, icon: Icon, title, desc, cta, accent }: {
     muted: "bg-black/8 text-[var(--color-navy)]",
   };
   return (
-    <Link href={href} className="card flex flex-col gap-3 p-5 transition hover:-translate-y-0.5 hover:shadow-[var(--shadow-pop)]">
-      <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${bg[accent]}`}>
+    <Link href={href} className="card card-hover group flex flex-col gap-3 p-5">
+      <div className={`flex h-11 w-11 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-110 ${bg[accent]}`}>
         <Icon size={20} />
       </div>
       <div>
         <h3 className="font-bold text-[var(--color-navy)]">{title}</h3>
         <p className="mt-0.5 text-sm text-[var(--color-muted)]">{desc}</p>
       </div>
-      <span className="mt-auto text-sm font-semibold text-[var(--color-brand)]">{cta} →</span>
+      <span className="mt-auto flex items-center gap-1 text-sm font-semibold text-[var(--color-brand)]">
+        {cta} <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
+      </span>
     </Link>
   );
 }

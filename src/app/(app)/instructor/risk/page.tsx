@@ -34,7 +34,7 @@ export default function RiskPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="anim-fade-up flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-[var(--color-navy)]">Who needs you first</h2>
           <p className="text-sm text-[var(--color-muted)]">
@@ -84,18 +84,21 @@ export default function RiskPage() {
       )}
 
       <div className="space-y-3">
-        {students.map((s) => <RiskRow key={s.session_id} s={s} />)}
+        {students.map((s, i) => <RiskRow key={s.session_id} s={s} index={i} />)}
       </div>
     </div>
   );
 }
 
-function RiskRow({ s }: { s: RiskAssessment }) {
+function RiskRow({ s, index }: { s: RiskAssessment; index: number }) {
   const band = BAND[s.band];
   const progress = s.total_steps ? Math.round((s.current_step / s.total_steps) * 100) : 0;
 
   return (
-    <div className="card space-y-3 p-4">
+    <div
+      className={`card card-hover anim-fade-up space-y-3 p-4 ${s.band === "high" ? "alert-ring" : ""}`}
+      style={{ animationDelay: `${Math.min(index, 8) * 0.05}s` }}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -112,13 +115,13 @@ function RiskRow({ s }: { s: RiskAssessment }) {
               </span>
             )}
           </div>
-          <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+          <p className="font-data mt-0.5 text-xs text-[var(--color-muted)]">
             Step {s.current_step} of {s.total_steps} · {progress}% complete
           </p>
         </div>
 
         <div className="shrink-0 text-right">
-          <p className="text-2xl font-bold leading-none" style={{ color: band.bg }}>{s.score}</p>
+          <p className="font-data text-2xl font-bold leading-none" style={{ color: band.bg }}>{s.score}</p>
           <p className="text-[11px] text-[var(--color-muted)]">risk score</p>
         </div>
       </div>
@@ -128,7 +131,7 @@ function RiskRow({ s }: { s: RiskAssessment }) {
           {s.factors.map((f) => (
             <span
               key={f.code}
-              className={`rounded-md px-2 py-1 text-[11px] font-medium ${
+              className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
                 f.weight < 0
                   ? "bg-[var(--color-accent)]/12 text-[var(--color-accent)]"
                   : "bg-black/[0.04] text-[var(--color-navy)]"
@@ -144,13 +147,13 @@ function RiskRow({ s }: { s: RiskAssessment }) {
         <p className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
           <Gauge size={13} />
           Auto-verify bar for this student:{" "}
-          <strong className="text-[var(--color-navy)]">{Math.round(s.verification_threshold * 100)}%</strong>
+          <strong className="font-data text-[var(--color-navy)]">{Math.round(s.verification_threshold * 100)}%</strong>
         </p>
         <Link
           href={`/lab/${s.session_id}/integrity`}
-          className="flex items-center gap-0.5 text-xs font-semibold text-[var(--color-brand)] hover:underline"
+          className="group flex items-center gap-0.5 text-xs font-semibold text-[var(--color-brand)] hover:underline"
         >
-          View timeline <ChevronRight size={13} />
+          View timeline <ChevronRight size={13} className="transition-transform group-hover:translate-x-0.5" />
         </Link>
       </div>
 

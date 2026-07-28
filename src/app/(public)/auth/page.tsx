@@ -34,23 +34,24 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[var(--color-surface)] px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center">
-          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-navy)]">
-            <FlaskConical size={28} className="text-white" />
+    <div className="flex min-h-dvh items-center justify-center bg-[var(--color-surface)] px-4 py-10">
+      <div className="w-full max-w-sm overflow-hidden rounded-[1.4rem] shadow-[var(--shadow-pop)] anim-fade-up">
+        <div className="hero-gradient px-7 py-9 text-center text-white">
+          <div className="anim-float mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/12 backdrop-blur">
+            <FlaskConical size={28} />
           </div>
-          <h1 className="text-2xl font-extrabold text-[var(--color-navy)]">Welcome back</h1>
-          <p className="mt-1 text-sm text-[var(--color-muted)]">Sign in to LabMind</p>
+          <h1 className="text-2xl font-extrabold">Welcome back</h1>
+          <p className="mt-1 text-sm text-white/70">Sign in to LabMind</p>
         </div>
 
+        <div className="space-y-5 bg-[var(--color-card)] px-7 py-7">
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <div className="anim-fade-up rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
             {error === "CredentialsSignin" ? "Invalid email or password." : "Sign-in failed. Please try again."}
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="card space-y-4 p-6">
+        <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-[var(--color-navy)]">Email</label>
             <input
@@ -89,7 +90,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={loading || !email || !password}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-navy)] py-3 font-semibold text-white disabled:opacity-40"
+            className="btn-primary w-full"
           >
             {loading && <Loader2 size={18} className="animate-spin" />}
             {loading ? "Signing in…" : "Sign in"}
@@ -102,6 +103,7 @@ function LoginForm() {
             Create one
           </Link>
         </p>
+        </div>
       </div>
     </div>
   );

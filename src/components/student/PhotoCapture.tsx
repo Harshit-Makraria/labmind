@@ -10,9 +10,22 @@ import { ProgressBar } from "@/components/student/ProgressBar";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/hooks/useSession";
 import { ApiError, api } from "@/lib/api-client";
+import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import type { VisionExpected, VisionResult } from "@/lib/types";
 
 const FALLBACK_EXPECTED: VisionExpected = { type: "burette_reading", expected_value: null, tolerance: 0.1 };
+
+/** Animated confidence bar with a marker at the auto-verify threshold, so the
+ * student sees exactly how close their read came to auto-passing. */
+function ConfidenceBar({ confidence, tone }: { confidence: number; tone: string }) {
+  const pct = Math.round(confidence * 100);
+  return (
+    <div className="progress-track">
+      <div className="progress-fill" style={{ width: `${pct}%`, backgroundColor: tone }} />
+      <span className="progress-marker" style={{ left: `${VISION_HIGH_CONFIDENCE * 100}%` }} />
+    </div>
+  );
+}
 
 function imageDimensions(dataUrl: string): Promise<{ w: number; h: number }> {
   return new Promise((resolve, reject) => {
@@ -143,7 +156,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
     <div className="mx-auto max-w-xl py-1">
       <ProgressBar current={idx + 1} total={steps.length} />
 
-      <div className="card space-y-4 p-5">
+      <div className="card anim-fade-up space-y-4 p-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-brand)]">
             Step {step.step_number} · Photo verification
@@ -156,7 +169,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Captured" className="max-h-72 w-full rounded-[var(--radius-btn)] object-cover" />
+          <img src={preview} alt="Captured" className="anim-scale-in max-h-72 w-full rounded-[var(--radius-btn)] object-cover" />
         ) : (
           <div className="space-y-3">
             <button
@@ -191,12 +204,15 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
         {/* RETAKE — image too poor (< 40% confidence) */}
         {result?.verification_status === "retake" && (
-          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-danger)]/10 p-3 text-sm">
+          <div className="anim-fade-up flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-danger)]/10 p-3 text-sm">
             <Camera size={18} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
-            <div>
-              <p className="font-bold text-[var(--color-danger)]">Image too unclear — please retake</p>
-              <p className="text-[var(--color-navy)]">{result.message}</p>
-              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div>
+                <p className="font-bold text-[var(--color-danger)]">Image too unclear — please retake</p>
+                <p className="text-[var(--color-navy)]">{result.message}</p>
+              </div>
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-danger)" />
+              <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — too low to process. Check lighting, focus, and angle.
               </p>
             </div>
@@ -205,12 +221,18 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
         {/* AUTO VERIFIED — high confidence pass */}
         {result?.verification_status === "auto_verified" && (
-          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-accent)]/12 p-3 text-sm">
+          <div className="anim-fade-up flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-accent)]/12 p-3 text-sm">
             <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
-            <div>
-              <p className="font-bold text-[var(--color-accent)]">Auto verified ✓</p>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-bold text-[var(--color-accent)]">Auto verified ✓</p>
+                {result.reading !== null && (
+                  <span className="font-data text-lg font-bold text-[var(--color-navy)]">{result.reading}</span>
+                )}
+              </div>
               <p className="text-[var(--color-navy)]">{result.message}</p>
-              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-accent)" />
+              <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — high enough to auto-pass
               </p>
             </div>
@@ -219,12 +241,18 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
         {/* NEEDS REVIEW — low confidence, queued for instructor */}
         {result?.verification_status === "needs_review" && (
-          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-warning)]/12 p-3 text-sm">
+          <div className="anim-fade-up flex items-start gap-2 rounded-[var(--radius-btn)] bg-[var(--color-warning)]/12 p-3 text-sm">
             <Clock size={18} className="mt-0.5 shrink-0 text-[var(--color-warning)]" />
-            <div>
-              <p className="font-bold text-[var(--color-warning)]">Sent for instructor review</p>
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-bold text-[var(--color-warning)]">Sent for instructor review</p>
+                {result.reading !== null && (
+                  <span className="font-data text-lg font-bold text-[var(--color-navy)]">{result.reading}</span>
+                )}
+              </div>
               <p className="text-[var(--color-navy)]">{result.message}</p>
-              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-warning)" />
+              <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — below threshold, instructor will verify. You can continue.
               </p>
             </div>
@@ -233,12 +261,18 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
         {/* FAILED — bad pass, retry or manual override */}
         {result?.verification_status === "failed" && (
-          <div className="flex items-start gap-2 rounded-[var(--radius-btn)] bg-red-500/10 p-3 text-sm text-[var(--color-navy)]">
+          <div className="anim-fade-up flex items-start gap-2 rounded-[var(--radius-btn)] bg-red-500/10 p-3 text-sm text-[var(--color-navy)]">
             <XCircle size={18} className="mt-0.5 shrink-0 text-red-500" />
-            <div>
-              <p className="font-semibold text-red-600">{result.message}</p>
-              <p className="mt-0.5 text-[var(--color-muted)]">{result.notes}</p>
-              <p className="mt-0.5 text-xs text-[var(--color-muted)]">
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold text-red-600">{result.message}</p>
+                {result.reading !== null && (
+                  <span className="font-data text-lg font-bold text-[var(--color-navy)]">{result.reading}</span>
+                )}
+              </div>
+              <p className="text-[var(--color-muted)]">{result.notes}</p>
+              <ConfidenceBar confidence={result.confidence} tone="var(--color-danger)" />
+              <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% · attempt {result.attempts}
               </p>
             </div>
