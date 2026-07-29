@@ -822,7 +822,12 @@ app.get("/lab/:sessionId/audit", async (c) => {
   const { sessionId } = c.req.param();
   const session = await hydrateSession(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);
-  const chain = buildChain(session.safetyLog);
+  // Read from the append-only AuditLogEntry table, NOT the mutable safetyLog
+  // JSON column — each row's hash was fixed at insert time, so this can
+  // actually detect a post-hoc edit instead of re-deriving a fresh,
+  // self-consistent chain from whatever the log currently contains.
+  const rows = await db.auditLogEntry.findMany({ where: { sessionId }, orderBy: { id: "asc" } });
+  const chain = buildChain(rows);
   return c.json({ chain, verification: verifyChain(chain), student_name: session.studentName });
 });
 

@@ -17,6 +17,7 @@ import type {
   TraceSpan,
 } from "@/lib/types";
 import { db } from "@/server/db";
+import { AUDIT_GENESIS_HASH, hashAuditEntry } from "@/server/tools/audit-chain";
 
 export interface StoredSession {
   sessionId: string;
@@ -265,7 +266,29 @@ export function manualOverride(id: string, stepNumber: number, value: number | n
   });
 }
 
+/**
+ * Append one row to the tamper-evident audit log (AuditLogEntry — insert
+ * only, no update/delete path anywhere in the app). Chained from whichever
+ * row was last written for this session, so the hash is fixed independently
+ * of the mutable `safetyLog` JSON copy kept on the session for display.
+ */
+async function appendAuditEntry(sessionId: string, stepNumber: number, alerts: SafetyConflict[]) {
+  const top = alerts[0];
+  const summary = top ? `${top.type}: ${top.reagents.join(" + ")} — ${top.action}` : "Safety check recorded";
+  const severity = top?.severity ?? "low";
+  try {
+    const last = await db.auditLogEntry.findFirst({ where: { sessionId }, orderBy: { id: "desc" } });
+    const prevHash = last?.hash ?? AUDIT_GENESIS_HASH;
+    const at = new Date();
+    const hash = hashAuditEntry(prevHash, at.toISOString(), stepNumber, summary, severity);
+    await db.auditLogEntry.create({ data: { sessionId, stepNumber, summary, severity, prevHash, hash, at } });
+  } catch (e) {
+    console.error("[session-store] audit log append failed — this entry will be missing from the tamper-evident chain:", e);
+  }
+}
+
 export function recordSafetyAlert(id: string, stepNumber: number, alerts: SafetyConflict[]) {
+  appendAuditEntry(id, stepNumber, alerts).catch(() => {});
   return mutate(id, (s) => {
     s.safetyAlertCount += 1;
     s.status = "safety_alert";

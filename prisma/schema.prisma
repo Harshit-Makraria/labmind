@@ -92,6 +92,25 @@ model LabSession {
   updatedAt        DateTime            @updatedAt
 }
 
+/// Append-only tamper-evident safety log. Rows are only ever INSERTed by
+/// appendAuditEntry() — there is no update/delete path anywhere in the app.
+/// Each row's hash is fixed at write time from the row's own content plus the
+/// PREVIOUS row's hash, so verifyChain() can detect any edit made to a row
+/// after the fact (e.g. a direct DB edit) by recomputing the hash from
+/// current content and finding it no longer matches the hash stored here.
+model AuditLogEntry {
+  id         Int      @id @default(autoincrement())
+  sessionId  String
+  stepNumber Int
+  summary    String
+  severity   String
+  prevHash   String
+  hash       String
+  at         DateTime @default(now())
+
+  @@index([sessionId])
+}
+
 model InstructorSession {
   code           String       @id
   sessionName    String
