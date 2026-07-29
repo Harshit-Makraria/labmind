@@ -41,7 +41,10 @@ const STATIC_FALLBACK: Record<"openai" | "gemini" | "claude", CatalogModel[]> = 
 
 /** Models actually usable for chat/vision — excludes embeddings, TTS, moderation, image-gen, etc. */
 function isUsableOpenaiModel(id: string): boolean {
-  if (/embedding|whisper|tts|moderation|dall-e|davinci|babbage|ada|curie|realtime|audio|transcribe/i.test(id)) return false;
+  // "image" excludes gpt-image-*/chatgpt-image-* (DALL-E-style generation
+  // models) — they show up in /v1/models but aren't chat-completion models,
+  // so picking one here would hard-fail the very next vision/chat call.
+  if (/embedding|whisper|tts|moderation|dall-e|davinci|babbage|ada|curie|realtime|audio|transcribe|image/i.test(id)) return false;
   return /^(gpt-|o1|o3|o4|chatgpt)/i.test(id);
 }
 
@@ -57,6 +60,18 @@ async function fetchOpenaiModels(apiKey: string): Promise<CatalogModel[]> {
     .map((m) => ({ id: m.id }));
 }
 
+/**
+ * Google's model list mixes real Gemini chat/vision models in with image
+ * generation ("Nano Banana"), TTS, music (Lyria), robotics, and agent-preview
+ * models that all happen to support generateContent too. None of those are
+ * usable for a plain "describe this photo" chat call, so this keeps only the
+ * models actually named `gemini-*` and excludes the non-chat sub-families.
+ */
+function isUsableGeminiModel(id: string): boolean {
+  if (!id.startsWith("gemini-")) return false;
+  return !/image|tts|robotics|computer-use/i.test(id);
+}
+
 async function fetchGeminiModels(apiKey: string): Promise<CatalogModel[]> {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
   if (!res.ok) throw new Error(`Gemini models list failed: ${res.status}`);
@@ -65,7 +80,8 @@ async function fetchGeminiModels(apiKey: string): Promise<CatalogModel[]> {
   };
   return data.models
     .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
-    .map((m) => ({ id: m.name.replace(/^models\//, ""), label: m.displayName }));
+    .map((m) => ({ id: m.name.replace(/^models\//, ""), label: m.displayName }))
+    .filter((m) => isUsableGeminiModel(m.id));
 }
 
 async function fetchAnthropicModels(apiKey: string): Promise<CatalogModel[]> {

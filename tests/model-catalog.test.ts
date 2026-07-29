@@ -39,6 +39,26 @@ describe("fetchModelCatalog", () => {
     expect(ids[0]).toBe("gpt-4o-mini");
   });
 
+  it("excludes gpt-image-*/chatgpt-image-* generation models — not chat-completion compatible", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: "gpt-4o", created: 100 },
+          { id: "gpt-image-1", created: 400 },
+          { id: "gpt-image-1-mini", created: 500 },
+          { id: "chatgpt-image-latest", created: 600 },
+        ],
+      }),
+    });
+    const result = await fetchModelCatalog("openai", "sk-test");
+    const ids = result.models.map((m) => m.id);
+    expect(ids).toContain("gpt-4o");
+    expect(ids).not.toContain("gpt-image-1");
+    expect(ids).not.toContain("gpt-image-1-mini");
+    expect(ids).not.toContain("chatgpt-image-latest");
+  });
+
   it("falls back to the static list when the live fetch fails, without throwing", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
     const result = await fetchModelCatalog("gemini", "bad-key");
@@ -66,5 +86,24 @@ describe("fetchModelCatalog", () => {
     const result = await fetchModelCatalog("gemini", "test-key");
     expect(result.live).toBe(true);
     expect(result.models).toEqual([{ id: "gemini-1.5-flash", label: "Gemini 1.5 Flash" }]);
+  });
+
+  it("excludes Gemini's non-chat sub-families (image gen, robotics, TTS) even though they support generateContent", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: "models/gemini-2.5-flash", displayName: "Gemini 2.5 Flash", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-3-pro-image-preview", displayName: "Nano Banana Pro", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-robotics-er-1.5-preview", displayName: "Gemini Robotics", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-2.5-flash-preview-tts", displayName: "TTS", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/lyria-3-pro-preview", displayName: "Lyria", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemma-4-31b-it", displayName: "Gemma", supportedGenerationMethods: ["generateContent"] },
+        ],
+      }),
+    });
+    const result = await fetchModelCatalog("gemini", "test-key");
+    const ids = result.models.map((m) => m.id);
+    expect(ids).toEqual(["gemini-2.5-flash"]);
   });
 });
