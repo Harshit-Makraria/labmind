@@ -13,6 +13,7 @@
 import "server-only";
 import type { StepRecord, VisionCheckType } from "@/lib/types";
 import { instrumentFor } from "@/server/tools/instrument-spec";
+import { getExperiment } from "@/server/experiments";
 
 export type ViolationCode =
   | "off_scale"
@@ -40,14 +41,21 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /**
  * Validate a reading against instrument physics and session history.
  *
- * @param priorSteps  step records already recorded for this session
- * @param stepNumber  the step being verified now
+ * @param priorSteps    step records already recorded for this session
+ * @param stepNumber    the step being verified now
+ * @param experimentId  used to look up which prior steps target the SAME
+ *                       kind of reading (e.g. a "final titre" step, not an
+ *                       "initial reading" step) for the concordance check —
+ *                       without this, an initial reading near 0 mL and a
+ *                       final reading near 24.5 mL get pooled together and
+ *                       every titration trips a false "discordant" flag.
  */
 export function checkPhysicalConstraints(
   reading: number | null,
   type: VisionCheckType,
   priorSteps: StepRecord[],
   stepNumber: number,
+  experimentId?: string,
 ): ConstraintResult {
   const spec = instrumentFor(type);
   if (reading === null || !spec) return { violations: [], snappedReading: reading };
@@ -111,11 +119,29 @@ export function checkPhysicalConstraints(
   // ── 4. Replicate concordance ────────────────────────────────────────
   // Titrations are run in triplicate; concordant titres agree within 0.1 mL.
   // Scattered replicates mean a technique problem the vision check can't see.
+  //
+  // Only pool prior steps that measure the SAME thing as this one — e.g. two
+  // "final reading" steps — never an initial reading (~0 mL) against a final
+  // one (~24.5 mL). Role is inferred from the protocol's own declared
+  // expected_value for each step, so this stays generic across experiments
+  // instead of hardcoding step numbers.
   if (spec.concordance) {
+    const protocolSteps = getExperiment(experimentId).protocol.steps;
+    const currentExpected = protocolSteps.find((s) => s.step_number === stepNumber)?.vision_expected?.expected_value ?? null;
+    const roleTolerance = spec.concordance * 20;
     const replicates = priorSteps
       .filter((s) => s.step_number !== stepNumber && s.vision_reading !== null)
+      .filter((s) => {
+        if (currentExpected === null) return true; // no declared target — fall back to pooling everything
+        const stepExpected = protocolSteps.find((p) => p.step_number === s.step_number)?.vision_expected?.expected_value;
+        return typeof stepExpected === "number" && Math.abs(stepExpected - currentExpected) <= roleTolerance;
+      })
       .map((s) => s.vision_reading as number);
-    if (replicates.length >= 2) {
+    // Role-filtering already narrows this to genuine same-role repeats, so a
+    // single prior same-role reading plus the current one (2 values total) is
+    // enough evidence to judge scatter — unlike the old pooled-everything
+    // list, where >=2 was needed just to outnumber the noise.
+    if (replicates.length >= 1) {
       const all = [...replicates, snapped];
       const spread = round2(Math.max(...all) - Math.min(...all));
       if (spread > spec.concordance * 3) {

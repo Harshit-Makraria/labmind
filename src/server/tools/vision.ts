@@ -206,6 +206,28 @@ async function getImageMetrics(imageBase64: string) {
   return { width: info.width, height: info.height, aspect: info.width / info.height, avgBrightness, contrast: Math.sqrt(variance), colorfulness: colorSpreadSum / pixels, darkRatio: darkCount / pixels, brightRatio: brightCount / pixels, colorfulRatio: colorfulCount / pixels, verticalEdge: verticalEdgeSum / Math.max(1, pixels - info.height), horizontalEdge: horizontalEdgeSum / Math.max(1, pixels - info.width) };
 }
 
+/**
+ * Does this photo's SHAPE even resemble the requested instrument?
+ *
+ * A burette/cylinder reading is a tall subject with strong vertical edges
+ * (the tube walls); a gel photo is a wide subject with strong horizontal
+ * edges (the lane bands). `getImageMetrics` already computes aspect ratio
+ * and directional edge energy for the blur/blank gate below — this reuses
+ * those same numbers to catch a student submitting the wrong photograph
+ * entirely (e.g. a gel image for a burette step), which the tolerance-based
+ * reading check has no way to catch on its own.
+ */
+function shapeMismatch(type: VisionExpected["type"], metrics: NonNullable<Awaited<ReturnType<typeof getImageMetrics>>>): string | null {
+  const edgeRatio = metrics.horizontalEdge > 0 ? metrics.verticalEdge / metrics.horizontalEdge : metrics.verticalEdge > 0 ? Number.POSITIVE_INFINITY : 1;
+  if (type === "burette_reading" && metrics.aspect > 1.3 && edgeRatio < 0.8) {
+    return "This does not resemble a burette reading — the image looks wide and banded rather than a tall graduated tube.";
+  }
+  if (type === "gel_band" && metrics.aspect < 0.77 && edgeRatio > 1.25) {
+    return "This does not resemble a gel image — the image looks like a tall narrow tube rather than a wide banded gel.";
+  }
+  return null;
+}
+
 async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const img = req.image_base64 ?? "";
   const expected: VisionExpected = req.expected;
@@ -215,6 +237,11 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const clearEnough = metrics && metrics.width >= 320 && metrics.height >= 240 && metrics.contrast >= 12;
   if (!clearEnough) {
     return { reading: null, confidence: 0.45, pass: false, deviation: null, message: "Image too small or unclear to analyse.", notes: "Hold steady, fill the frame, use good lighting.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "needs_review" as VisionVerificationStatus };
+  }
+
+  const mismatch = metrics && shapeMismatch(expected.type, metrics);
+  if (mismatch) {
+    return { reading: null, confidence: 0.3, pass: false, deviation: null, message: mismatch, notes: "Demo heuristic — the photo's shape doesn't match the expected instrument for this step.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "failed" as VisionVerificationStatus };
   }
 
   const confidence = round2(0.84 + (h % 6) / 100);
@@ -369,7 +396,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     //     scale, is it within range, and is it consistent with what this same
     //     student recorded earlier? A model can invent a plausible number; it
     //     cannot make that number obey the glassware and the session history.
-    const physical = checkPhysicalConstraints(reading, req.expected.type, req.priorSteps ?? [], req.step_number);
+    const physical = checkPhysicalConstraints(reading, req.expected.type, req.priorSteps ?? [], req.step_number, req.experiment_id);
     if (physical.violations.length) {
       for (const v of physical.violations) {
         console.warn(`[PHYSICS] ${v.severity.toUpperCase()} ${v.code}: ${v.message}`);

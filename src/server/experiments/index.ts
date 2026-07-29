@@ -1,4 +1,4 @@
-/** Experiment registry — the test library (3 ready-to-run experiments). */
+/** Experiment registry — the test library (4 ready-to-run experiments). */
 import "server-only";
 import type { Experiment, ExperimentMeta, Protocol } from "@/lib/types";
 import { TITRATION } from "./titration";
