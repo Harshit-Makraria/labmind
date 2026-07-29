@@ -16,8 +16,12 @@ export interface LabmindConfig {
   geminiModel: string;
   openaiApiKey?: string;
   openaiModel: string;
+  /** Model used ONLY for image-analysis calls — deliberately separate from openaiModel (chat/JSON), which may be set to a cheaper model. */
+  openaiVisionModel: string;
   anthropicApiKey?: string;
   anthropicModel: string;
+  /** Model used ONLY for image-analysis calls — deliberately separate from anthropicModel (chat/JSON). Reading a burette/gel/absorbance photo correctly is the single highest-value accuracy lever in the app, so this defaults to the strongest current Claude model regardless of what the text model is set to. */
+  anthropicVisionModel: string;
   azureEndpoint?: string;
   azureApiKey?: string;
   azureDeployment: string;
@@ -35,8 +39,10 @@ export function getConfig(): LabmindConfig {
     geminiModel: env.GEMINI_MODEL ?? "gemini-1.5-flash",
     openaiApiKey: rt?.openaiKey ?? env.OPENAI_API_KEY,
     openaiModel: env.OPENAI_MODEL ?? "gpt-4o-mini",
+    openaiVisionModel: env.OPENAI_VISION_MODEL ?? "gpt-4o",
     anthropicApiKey: rt?.anthropicKey ?? env.ANTHROPIC_API_KEY,
     anthropicModel: env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+    anthropicVisionModel: env.ANTHROPIC_VISION_MODEL ?? "claude-sonnet-5",
     azureEndpoint: env.AZURE_OPENAI_ENDPOINT,
     azureApiKey: env.AZURE_OPENAI_API_KEY,
     azureDeployment: env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o-mini",

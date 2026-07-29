@@ -15,23 +15,14 @@
  * not, and two independently-trained models rarely hallucinate the same value.
  */
 import "server-only";
+import type { VisionCheckRequest } from "@/lib/types";
 import { getConfig } from "@/server/config";
 import { isExhausted } from "@/server/llm/provider-state";
-import { visionWithProvider, type VisionProvider } from "@/server/llm/provider";
+import type { VisionProvider } from "@/server/llm/provider";
+import { runImageCheck, type ImageCheckObservation } from "@/server/tools/vision-check-flow";
 
-export interface RawObservation {
-  reading: number | null;
-  graduation_above?: number | null;
-  graduation_below?: number | null;
-  meniscus_visible?: boolean;
-  solution_visible?: boolean;
-  scale_legible?: boolean;
-  observed_colour?: string;
-  colour_intensity?: string;
-  confidence?: number;
-  message?: string;
-  notes?: string;
-}
+/** @deprecated use ImageCheckObservation from vision-check-flow.ts — kept as an alias so existing imports don't churn. */
+export type RawObservation = ImageCheckObservation;
 
 export interface EnsembleResult {
   /** Median of the numeric readings that were obtained. */
@@ -99,26 +90,18 @@ function availableProviders(): VisionProvider[] {
   return out;
 }
 
-function parseObservation(raw: string): RawObservation | null {
-  try {
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-    return JSON.parse(cleaned) as RawObservation;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Read one image several times and fuse the results.
  *
  * Strategy: prefer breadth (two different providers) over depth (same provider
  * twice), because independent models are far less likely to share a failure
  * mode. Falls back to repeated sampling of one provider when only one is
- * configured.
+ * configured. Each individual read is the SAME three-node flow
+ * (instruction → model → parse) from vision-check-flow.ts — this module's
+ * job is purely the fan-out/fan-in around it, not the call itself.
  */
 export async function ensembleRead(
-  system: string,
-  prompt: string,
+  req: Pick<VisionCheckRequest, "expected" | "step_number" | "experiment_id">,
   imageBase64: string,
   tolerance: number,
   samples = 3,
@@ -130,21 +113,17 @@ export async function ensembleRead(
   const plan: VisionProvider[] = Array.from({ length: samples }, (_, i) => providers[i % providers.length]);
 
   const settled = await Promise.allSettled(
-    plan.map((p, i) =>
-      visionWithProvider(p, system, { imageBase64, prompt }, {
-        // Vary temperature slightly across repeats of the SAME provider so the
-        // samples are genuinely independent rather than identical replays.
-        temperature: i === 0 ? 0 : 0.3,
-      }),
-    ),
+    // Vary temperature slightly across repeats of the SAME provider so the
+    // samples are genuinely independent rather than identical replays.
+    plan.map((p, i) => runImageCheck(p, req, imageBase64, i === 0 ? 0 : 0.3)),
   );
 
   const observations: { provider: VisionProvider; obs: RawObservation }[] = [];
   settled.forEach((r, i) => {
-    if (r.status === "fulfilled") {
-      const obs = parseObservation(r.value);
-      if (obs) observations.push({ provider: plan[i], obs });
-      else console.warn(`[ENSEMBLE] ${plan[i]} returned unparseable JSON`);
+    if (r.status === "fulfilled" && r.value) {
+      observations.push({ provider: plan[i], obs: r.value });
+    } else if (r.status === "fulfilled") {
+      console.warn(`[ENSEMBLE] ${plan[i]} returned unparseable JSON`);
     } else {
       console.warn(`[ENSEMBLE] ${plan[i]} failed:`, r.reason);
     }

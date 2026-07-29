@@ -3,8 +3,14 @@
  *
  * DEMO_MODE never reaches here — tools/agent short-circuit to deterministic logic.
  *
- * "auto" provider waterfall: OpenAI (gpt-4o-mini) → Gemini (gemini-1.5-flash) → demo.
+ * "auto" provider waterfall: Claude → OpenAI → Gemini → demo.
  * A 429 / quota error marks that provider exhausted and falls to the next.
+ *
+ * Vision calls use a SEPARATE, deliberately stronger model per provider
+ * (anthropicVisionModel / openaiVisionModel in config.ts) than the plain-text
+ * model — reading a burette/gel/absorbance photo correctly is the single
+ * highest-value accuracy lever in this app, so it isn't allowed to quietly
+ * inherit a cheaper text model chosen for cost/latency reasons.
  *
  * Three capabilities: completeJSON, completeVision, completeWithTools.
  */
@@ -70,7 +76,7 @@ export async function completeVision(system: string, input: VisionInput): Promis
         { type: "text", text: input.prompt },
         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.imageBase64 } },
       ],
-    }]);
+    }], undefined, c.anthropicVisionModel);
   }
   return openaiVisionChat(c, system, input);
 }
@@ -105,6 +111,7 @@ export async function visionWithProvider(
           ],
         }],
         opts.temperature,
+        c.anthropicVisionModel,
       );
     }
     if (provider === "openai") return await openaiVisionChat(c, system, input, opts.temperature);
@@ -169,7 +176,7 @@ async function autoCompleteVision(c: LabmindConfig, system: string, input: Visio
           { type: "text", text: input.prompt },
           { type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.imageBase64 } },
         ],
-      }]);
+      }], undefined, c.anthropicVisionModel);
     } catch (e) {
       if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[VISION] Claude quota hit — falling back to GPT-4o"); }
       else throw e;
@@ -326,7 +333,9 @@ function geminiTextOf(data: GeminiResponse): string {
 
 // ─── OpenAI / Azure ──────────────────────────────────────────────────
 
-// Vision-specific OpenAI call: uses gpt-4o (not gpt-4o-mini) for accuracy,
+// Vision-specific OpenAI call: uses c.openaiVisionModel (gpt-4o by default, NOT
+// gpt-4o-mini — image accuracy is the highest-value lever in this app, so vision
+// calls deliberately don't inherit whatever cheaper model openaiModel is set to),
 // avoids response_format json_object which can conflict with image inputs on some versions.
 async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionInput, temperature = 0.1): Promise<string> {
   const { url, headers, isAzure } = openaiEndpoint(c);
@@ -334,7 +343,7 @@ async function openaiVisionChat(c: LabmindConfig, system: string, input: VisionI
     method: "POST",
     headers,
     body: JSON.stringify({
-      model: isAzure ? undefined : "gpt-4o",
+      model: isAzure ? undefined : c.openaiVisionModel,
       messages: [
         { role: "system", content: system },
         {
@@ -472,12 +481,12 @@ function openaiEndpoint(c: LabmindConfig) {
 
 // ─── Anthropic ───────────────────────────────────────────────────────
 
-async function anthropicChat(c: LabmindConfig, system: string, messages: unknown[], temperature?: number): Promise<string> {
+async function anthropicChat(c: LabmindConfig, system: string, messages: unknown[], temperature?: number, model?: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: anthropicHeaders(c),
     body: JSON.stringify({
-      model: c.anthropicModel,
+      model: model ?? c.anthropicModel,
       max_tokens: 1500,
       system,
       messages,

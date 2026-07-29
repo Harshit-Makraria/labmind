@@ -20,157 +20,10 @@ function verificationStatus(pass: boolean, confidence: number): VisionVerificati
   return "failed";                                                    // good image but wrong reading
 }
 
-// ─── Experiment-aware system prompts ────────────────────────────────
-
-/**
- * BLIND READING — the model is never told the expected value.
- *
- * The previous prompt included "the expected reading is approximately X mL"
- * and then asked the model what it read. Vision models anchor hard on that
- * number and report it back regardless of the pixels, which made the check
- * circular: it confirmed whatever it was told to expect. That is how a 6 mL
- * burette was "read" as 24.5 mL with high confidence — and why the
- * server-side tolerance check alone could not catch it.
- *
- * The model now reports raw observations only. The server alone decides pass.
- */
-const SYSTEM_PROMPT = `You are a forensic instrument reader for a science laboratory.
-You report ONLY what is physically visible in the photograph.
-
-Rules:
-- You are never told the expected value. Do not guess, infer, or assume what it "should" be.
-- Read the instrument exactly as it appears, even if the value seems unusual.
-- A value that looks wrong is still the correct answer if that is what the image shows.
-- If the scale is unreadable, occluded, or out of focus, return null and a low confidence. Reporting null is a correct, valuable answer — never invent a number to seem helpful.
-- Calibrate confidence honestly: 0.9+ only when graduation marks are crisp and unambiguous.
-Return valid JSON only — no markdown, no commentary.
-
-Worked examples of correct burette reading technique:
-- Meniscus sits two small marks below the printed "24", scale increasing downward,
-  minor divisions of 0.1 mL → reading is 24.20, graduation_above 24, graduation_below 25.
-- Liquid surface sits exactly on the printed "0" line at the top of the tube
-  → reading is 0.00, graduation_above 0, graduation_below 1.
-- A clamp covers the scale where the meniscus sits, so the nearest marks cannot be
-  counted → reading is null, scale_legible false, confidence 0.2.
-Read the BOTTOM of the meniscus curve, not the rim, and note that burette scales
-increase downward (0 at the top).`;
-
-function buildUserPrompt(req: VisionCheckRequest): string {
-  const { expected, step_number, experiment_id } = req;
-  const baseCtx = `Experiment: ${experimentLabel(experiment_id)}. Step: ${step_number}.`;
-
-  if (expected.type === "burette_reading") {
-    return `${baseCtx}
-This photograph shows a burette. Report the liquid level.
-
-Method:
-1. Find the liquid surface (meniscus) in the burette tube.
-2. Identify the nearest PRINTED number label directly ABOVE the meniscus, and the nearest directly BELOW it.
-3. Read the volume at the BOTTOM of the meniscus curve, to the nearest 0.05 mL.
-   Note: burette scales increase DOWNWARD (0 at the top).
-4. Judge image quality independently of the reading.
-
-Return JSON:
-{
-  "reading": <number — mL at the bottom of the meniscus, or null if you cannot read it>,
-  "graduation_above": <number — the printed label just above the meniscus, or null>,
-  "graduation_below": <number — the printed label just below the meniscus, or null>,
-  "meniscus_visible": <true|false — is the liquid surface actually visible and unobstructed>,
-  "scale_legible": <true|false — are the graduation marks sharp enough to read>,
-  "confidence": <0.0–1.0>,
-  "message": "<one sentence: what you see and the value you read>",
-  "notes": "<if quality is poor, the specific problem — blur, glare, parallax, clamp blocking the scale>"
-}`;
-  }
-
-  if (expected.type === "gel_band") {
-    return `${baseCtx}
-This photograph shows an agarose gel under UV illumination. Report the band size.
-
-Method:
-1. Locate the DNA ladder lane and the student's sample lane.
-2. Identify the brightest band in the sample lane.
-3. Estimate its size in base pairs by interpolating between the two nearest ladder bands.
-4. Judge image quality independently of the reading.
-
-Return JSON:
-{
-  "reading": <number — estimated bp of the brightest sample band, or null>,
-  "graduation_above": <number — bp of the nearest ladder band ABOVE (larger), or null>,
-  "graduation_below": <number — bp of the nearest ladder band BELOW (smaller), or null>,
-  "meniscus_visible": <true|false — is a distinct band actually visible>,
-  "scale_legible": <true|false — is the ladder readable>,
-  "confidence": <0.0–1.0>,
-  "message": "<one sentence describing the lanes and bands you see>",
-  "notes": "<specific quality problem if any — overexposure, smearing, no ladder>"
-}`;
-  }
-
-  if (expected.type === "absorbance") {
-    return `${baseCtx}
-This photograph shows a spectrophotometer's digital display after a sample reading.
-
-Method:
-1. Locate the absorbance value on the display (may be labeled "A" or "Abs").
-2. Read the full displayed value, including all decimal places shown.
-3. Judge image quality independently of the reading.
-
-Return JSON:
-{
-  "reading": <number — the displayed absorbance in AU, or null if you cannot read the display>,
-  "graduation_above": null,
-  "graduation_below": null,
-  "meniscus_visible": <true|false — is the display actually visible and unobstructed>,
-  "scale_legible": <true|false — are the digits sharp enough to read>,
-  "confidence": <0.0–1.0>,
-  "message": "<one sentence: what you see and the value you read>",
-  "notes": "<if quality is poor, the specific problem — glare on the screen, blur, wrong display mode>"
-}`;
-  }
-
-  if (expected.type === "colour_change") {
-    // Colour needs a target to judge against, but the OBSERVATION is still
-    // reported blind first so the server can check the verdict against it.
-    return `${baseCtx}
-This photograph shows a reaction mixture in a flask or beaker.
-
-Report the colour you actually observe FIRST, before making any judgement.
-
-Return JSON:
-{
-  "reading": null,
-  "observed_colour": "<the colour you actually see, in plain words>",
-  "colour_intensity": "<none|faint|moderate|deep>",
-  "solution_visible": <true|false — is the liquid clearly visible>,
-  "scale_legible": <true|false — is lighting adequate to judge colour>,
-  "confidence": <0.0–1.0 — how sure you are of the colour you named>,
-  "message": "<one sentence describing what is in the vessel>",
-  "notes": "<lighting or clarity problems if any>"
-}`;
-  }
-
-  return `${baseCtx}
-Report what is physically visible in this laboratory photograph.
-
-Return JSON:
-{
-  "reading": <number if an instrument value is visible, else null>,
-  "scale_legible": <true|false>,
-  "confidence": <0.0–1.0>,
-  "message": "<what you observe in one sentence>",
-  "notes": "<image quality problems if any>"
-}`;
-}
-
-function experimentLabel(experimentId?: string): string {
-  const map: Record<string, string> = {
-    "acid-base-titration": "Acid-Base Titration (HCl vs NaOH with phenolphthalein indicator)",
-    "gel-electrophoresis": "DNA Gel Electrophoresis",
-    "iodine-clock": "Iodine Clock Reaction",
-    "aur-experiment": "AUR — Absorbance Using a Reference (spectrophotometry)",
-  };
-  return (experimentId && map[experimentId]) ?? (experimentId ?? "General Lab Experiment");
-}
+// The "what to check in this image" instruction and the blind-reading system
+// prompt now live in vision-check-flow.ts (NODE 1 of the check-image flow),
+// shared with vision-ensemble.ts so both call sites build the identical
+// message instead of maintaining two copies.
 
 /**
  * Endpoint colours, held SERVER-SIDE only. The model reports the colour it
@@ -341,7 +194,6 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     return { reading: null, confidence: 0, pass: false, deviation: null, message: "No image provided.", notes: "Please capture a photo before submitting.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "failed" as VisionVerificationStatus };
   }
 
-  const prompt = buildUserPrompt(req);
   const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : req.expected.type === "absorbance" ? 0.02 : 0.1);
   const t0 = Date.now();
 
@@ -372,7 +224,9 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     }
 
     // ── Stage 3: multi-sample / cross-provider read ────────────────────
-    const ensemble = await ensembleRead(SYSTEM_PROMPT, prompt, readImage, tol, 3);
+    // (each sample runs the build-instruction → send-to-model → parse-response
+    // flow from vision-check-flow.ts once — see that file for NODE 1–3)
+    const ensemble = await ensembleRead(req, readImage, tol, 3);
     if (!ensemble) throw new Error("no provider returned a usable observation");
 
     const latency = Date.now() - t0;
