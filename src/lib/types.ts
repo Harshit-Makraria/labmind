@@ -71,6 +71,8 @@ export interface ParseProtocolResponse extends Protocol {
   session_id: string;
   experiment_id: string;
   theoretical: { label: string; value: number; unit: string };
+  /** The experiment's real scientific objective, when known — null when a genuinely custom PDF was parsed into a different protocol than any library experiment. */
+  description: string | null;
 }
 
 // ─── Vision verification ────────────────────────────────────────────

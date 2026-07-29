@@ -170,7 +170,11 @@ app.post("/protocol/parse", async (c) => {
 
   upsertSession({ sessionId: body.session_id, studentName: body.student_name, experimentId: exp.id, experimentName: protocol.experiment_name, totalSteps: protocol.steps.length });
   recordTrace("protocol_parser", body.pdf_base64 ? "PDF upload" : `library: ${exp.id}`, `${protocol.experiment_name} · ${protocol.steps.length} steps${parsedFromPdf ? " (from PDF)" : ""}`, Date.now() - t0);
-  return c.json({ ...protocol, session_id: body.session_id, experiment_id: exp.id, theoretical: exp.theoretical, parsed_from_pdf: parsedFromPdf, fallback_reason: fallbackReason });
+  // Only attach the library experiment's own written description when this
+  // IS that library experiment — a genuinely custom PDF parsed into a
+  // different protocol has no matching description to show honestly.
+  const description = parsedFromPdf ? null : exp.description;
+  return c.json({ ...protocol, session_id: body.session_id, experiment_id: exp.id, theoretical: exp.theoretical, description, parsed_from_pdf: parsedFromPdf, fallback_reason: fallbackReason });
 });
 
 // ─── Safety check ────────────────────────────────────────────────────

@@ -51,11 +51,7 @@ export default function OverviewPage({ params }: { params: Promise<{ sessionId: 
         </span>
         <h1 className="mt-3 text-3xl font-extrabold">{p.experiment_name}</h1>
         <p className="mt-2 text-white/70">
-          Objective: To {p.experiment_name.toLowerCase().includes("titration")
-            ? "determine the concentration of an unknown acid by titration against a standard alkali"
-            : p.experiment_name.toLowerCase().includes("gel")
-            ? "estimate the size of an unknown DNA fragment using gel electrophoresis"
-            : "measure the rate of a clock reaction and relate it to reactant concentrations"}.
+          Objective: {p.description ?? `Complete the assigned experiment: ${p.experiment_name}.`}
         </p>
         <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/70">
           <span className="flex items-center gap-1"><Clock size={14} /> ~{p.steps.length * 5} min</span>
