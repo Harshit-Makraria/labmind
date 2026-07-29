@@ -66,15 +66,6 @@ function VerifyingPanel() {
   );
 }
 
-function imageDimensions(dataUrl: string): Promise<{ w: number; h: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image();
-    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
-}
-
 function fileToParts(file: File): Promise<{ dataUrl: string; base64: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -172,18 +163,10 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
     if (!file) return;
     const { dataUrl, base64: b64 } = await fileToParts(file);
 
-    // Client-side pre-check: catch an obviously unusable photo here rather than
-    // after a round trip. The server runs a stricter gate; this just saves the
-    // student the wait on the clearest failures.
-    const dims = await imageDimensions(dataUrl).catch(() => null);
-    if (dims && Math.min(dims.w, dims.h) < 500) {
-      toast.warning(
-        `That photo is only ${dims.w}×${dims.h}. Move closer so the scale fills the frame, then retake.`,
-        { duration: 6000 },
-      );
-      return;
-    }
-
+    // Any dimension is accepted here — the server's quality gate judges
+    // sharpness/brightness (not size), and the AI itself reports low
+    // confidence for a genuinely unreadable photo rather than the client
+    // pre-emptively blocking it on a pixel-count guess.
     setPreview(dataUrl);
     setBase64(b64);
     setResult(null);

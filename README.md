@@ -82,8 +82,9 @@ configuration. Photo verification, pre-lab quizzes, and result interpretation ar
 per-experiment (not just titration content reused everywhere), and the vision heuristic can
 still catch a wrong-shaped photo and can still genuinely fail a numeric reading, so the
 retake / needs-review / manual-override flows are demoable without wiring up a key. Set a
-provider key in **Settings** to switch to a real model (`auto` tries Claude → OpenAI → Gemini,
-or pick one directly).
+provider key in **Settings** to switch to a real model — `auto` uses OpenAI for chat and Gemini
+for photo verification by default (Claude is available on both, opt in via "Claude only"), or
+pick one provider directly.
 
 ## Getting started
 

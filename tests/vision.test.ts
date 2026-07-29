@@ -51,7 +51,7 @@ describe("vision tool (golden dataset)", () => {
     expect(Math.abs((resolved.reading ?? 0) - 24.5)).toBeLessThanOrEqual(0.1);
   });
 
-  it("blank/tiny image → low confidence, re-photograph", async () => {
+  it("blank/overexposed image → low confidence, re-photograph", async () => {
     const r = checkVision({
       session_id: "t",
       step_number: 5,
@@ -61,7 +61,22 @@ describe("vision tool (golden dataset)", () => {
     const resolved = await r;
     expect(resolved.pass).toBe(false);
     expect(resolved.confidence).toBeLessThan(0.75);
-    expect(resolved.message.toLowerCase()).toMatch(/unclear|too small|does not resemble|move closer/);
+    expect(resolved.message.toLowerCase()).toMatch(/unclear|overexposed|washed out|does not resemble|move closer/);
+  });
+
+  it("accepts a photo of any dimension — a small-but-sharp, well-exposed image is not rejected for its pixel size", async () => {
+    // Well under the old 500px minimum-edge cutoff, but crisp and correctly
+    // exposed — this must clear the quality gate on its own merits.
+    const stripe = await sharp({ create: { width: 20, height: 120, channels: 4, background: { r: 20, g: 20, b: 20, alpha: 1 } } }).png().toBuffer();
+    const tinyImage = await makeImageBase64(100, 150, { r: 200, g: 200, b: 200 }, [{ input: stripe, left: 40, top: 15 }]);
+    const r = await checkVision({
+      session_id: "t",
+      step_number: 5,
+      image_base64: tinyImage,
+      expected: { type: "burette_reading", expected_value: 24.5, tolerance: 0.1 },
+    });
+    expect(r.message.toLowerCase()).not.toMatch(/too small|only \d+.\d+/);
+    expect(r.notes?.toLowerCase() ?? "").not.toMatch(/too small|only \d+.\d+/);
   });
 
   it("gel-like image does not pass burette verification", async () => {

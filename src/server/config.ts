@@ -1,7 +1,10 @@
 /**
  * Server-only configuration.
  * Provider-agnostic LLM selection.
- * Default: "auto" — tries OpenAI (gpt-4o-mini) then Gemini (gemini-1.5-flash), falls back to demo.
+ * Default: "auto" — chat/text prefers OpenAI then Gemini; vision (photo
+ * verification) prefers Gemini then OpenAI. Claude is available on both but
+ * only used when explicitly selected in Settings ("Claude only"). Falls back
+ * to demo mode if no provider key is configured or all are exhausted.
  */
 import "server-only";
 import { getRuntimeSettings } from "@/server/runtime-config";
@@ -73,14 +76,18 @@ export function effectiveDemo(c: LabmindConfig = getConfig()): boolean {
   return false;
 }
 
-/** Human-readable label for the active engine (shown in the UI / traces). */
+/**
+ * Human-readable label for the active engine (shown in the UI / traces).
+ * Reflects the CHAT waterfall order (OpenAI → Gemini → Claude) — vision
+ * calls follow a different order (Gemini → OpenAI → Claude), see provider.ts.
+ */
 export function providerLabel(): string {
   const c = getConfig();
   if (effectiveDemo(c)) return "demo";
   if (c.llmProvider === "auto") {
-    if (c.anthropicApiKey && !isExhausted("anthropic")) return "claude";
-    if (c.openaiApiKey    && !isExhausted("openai"))    return "openai";
-    return "gemini";
+    if (c.openaiApiKey && !isExhausted("openai")) return "openai";
+    if (c.geminiApiKey && !isExhausted("gemini")) return "gemini";
+    return "claude";
   }
   return c.llmProvider;
 }

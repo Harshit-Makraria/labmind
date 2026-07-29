@@ -1,10 +1,16 @@
 /**
  * Pre-flight image quality gate.
  *
- * Runs before any model call. A blurry, dark, or tiny photo cannot produce a
- * trustworthy reading, so there is no point paying for the inference — and the
- * student gets a specific, actionable instruction ("too blurry") instead of a
- * vague "low confidence" several seconds later.
+ * Runs before any model call. A blurry, too-dark, or blown-out photo cannot
+ * produce a trustworthy reading, so there is no point paying for the
+ * inference — and the student gets a specific, actionable instruction ("too
+ * blurry") instead of a vague "low confidence" several seconds later.
+ *
+ * Deliberately does NOT reject on pixel dimensions — any dimension image can
+ * be submitted. A small-but-sharp crop is perfectly readable, and the AI
+ * ensemble reports its own low confidence / null reading for a photo that's
+ * genuinely too small to make out graduations, which is a better judge of
+ * "can this actually be read" than an arbitrary width/height cutoff.
  */
 import "server-only";
 
@@ -18,13 +24,12 @@ export interface QualityReport {
   /** Student-facing reason, present only when ok === false. */
   reason: string | null;
   /** Short code for logging/metrics. */
-  code: "too_small" | "too_blurry" | "too_dark" | "too_bright" | "unreadable" | null;
+  code: "too_blurry" | "too_dark" | "too_bright" | "unreadable" | null;
 }
 
 // Tuned for phone photos of glassware. Deliberately permissive — this gate is
 // meant to catch obviously unusable input, not to second-guess borderline shots
 // (the confidence pipeline handles those).
-const MIN_EDGE = 500;        // px on the short edge
 const MIN_SHARPNESS = 8;     // below this, graduation marks smear together
 const MIN_BRIGHTNESS = 30;   // 0–255
 const MAX_BRIGHTNESS = 240;  // blown-out highlights hide the meniscus
@@ -48,10 +53,6 @@ export async function assessQuality(imageBase64: string): Promise<QualityReport>
     const height = meta.height ?? 0;
 
     if (!width || !height) return fail("unreadable", "That file could not be read as an image.");
-
-    if (Math.min(width, height) < MIN_EDGE) {
-      return fail("too_small", `Photo is only ${width}×${height}. Move closer and retake so the scale fills more of the frame.`, { width, height });
-    }
 
     // Mean brightness from the greyscale channel.
     const grey = sharp(buf).greyscale();

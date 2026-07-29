@@ -36,10 +36,14 @@ brief "in-memory store" phase that followed it, are both historical context only
   conflict auto-escalates to the instructor console) — in demo mode too, not only with a live
   LLM key.
 - **LLM layer stays provider-agnostic** (`demo`/`auto`/`openai`/`gemini`/`claude`) in
-  `src/server/llm`; `auto` waterfalls Claude → OpenAI → Gemini across whichever keys are
-  configured and falls back to demo. Demo mode is deterministic but **genuinely fallible** —
-  it can reject a wrong-shaped photo and can genuinely fail a numeric reading, so the
-  retake/needs-review/manual-override flows are demoable with zero API key.
+  `src/server/llm`; `auto` prefers OpenAI → Gemini → Claude for chat/text and
+  Gemini → OpenAI → Claude for vision (photo verification uses a separate, deliberately
+  stronger model per provider than chat), falling back to demo when no configured key is
+  available. Claude is available on both but only used when explicitly selected. Demo mode
+  is deterministic but **genuinely fallible** — it can reject a wrong-shaped photo and can
+  genuinely fail a numeric reading, so the retake/needs-review/manual-override flows are
+  demoable with zero API key. Photo uploads accept any pixel dimension — the quality gate
+  judges sharpness/brightness, not size.
 - **Build and tests are green** (`pnpm build` exits 0; `pnpm test` — vitest — covers vision,
   safety, the agent loop, result interpretation, the physical-constraints layer, the audit
   chain, and per-experiment quiz content).

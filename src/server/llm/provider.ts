@@ -3,7 +3,12 @@
  *
  * DEMO_MODE never reaches here — tools/agent short-circuit to deterministic logic.
  *
- * "auto" provider waterfall: Claude → OpenAI → Gemini → demo.
+ * "auto" waterfall — DIFFERENT default order per capability:
+ *   - Chat/text (completeJSON, completeWithTools): OpenAI → Gemini → Claude → demo.
+ *   - Vision (completeVision, and the ensemble's per-sample provider order):
+ *     Gemini → OpenAI → Claude → demo.
+ * Claude is available on every capability but is deliberately not the "auto"
+ * default for either — pick "Claude only" in Settings to use it explicitly.
  * A 429 / quota error marks that provider exhausted and falls to the next.
  *
  * Vision calls use a SEPARATE, deliberately stronger model per provider
@@ -135,19 +140,14 @@ export async function completeWithTools(
 }
 
 // ─── Auto waterfall ──────────────────────────────────────────────────
-
-// Auto waterfall order: Claude → GPT-4o → Gemini → demo
-// Claude is default; GPT-4o kicks in if Claude key is exhausted.
+//
+// Chat/text (completeJSON, completeWithTools): OpenAI → Gemini → Claude → demo.
+// Vision (completeVision): Gemini → OpenAI → Claude → demo.
+// Claude is deliberately NOT the default for either — it's kept available as
+// an explicit opt-in from the Settings page ("Claude only") for anyone who
+// wants to switch to it, but "auto" no longer reaches for it first.
 
 async function autoCompleteJSON(c: LabmindConfig, system: string, user: string): Promise<string> {
-  if (c.anthropicApiKey && !isExhausted("anthropic")) {
-    try {
-      return await anthropicChat(c, system, [{ role: "user", content: user }]);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[LLM] Claude quota hit — falling back to GPT-4o"); }
-      else throw e;
-    }
-  }
   if (c.openaiApiKey && !isExhausted("openai")) {
     try {
       return await openaiChat(c, [{ role: "system", content: system }, { role: "user", content: user }]);
@@ -160,7 +160,15 @@ async function autoCompleteJSON(c: LabmindConfig, system: string, user: string):
     try {
       return await geminiText(c, system, user);
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("gemini"); }
+      if (isQuotaErr(e)) { markExhausted("gemini"); console.warn("[LLM] Gemini quota hit — falling back to Claude"); }
+      else throw e;
+    }
+  }
+  if (c.anthropicApiKey && !isExhausted("anthropic")) {
+    try {
+      return await anthropicChat(c, system, [{ role: "user", content: user }]);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("anthropic"); }
       else throw e;
     }
   }
@@ -168,6 +176,22 @@ async function autoCompleteJSON(c: LabmindConfig, system: string, user: string):
 }
 
 async function autoCompleteVision(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
+  if (c.geminiApiKey && !isExhausted("gemini")) {
+    try {
+      return await geminiVision(c, system, input);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("gemini"); console.warn("[VISION] Gemini quota hit — falling back to GPT-4o"); }
+      else throw e;
+    }
+  }
+  if (c.openaiApiKey && !isExhausted("openai")) {
+    try {
+      return await openaiVisionChat(c, system, input);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[VISION] GPT-4o quota hit — falling back to Claude"); }
+      else throw e;
+    }
+  }
   if (c.anthropicApiKey && !isExhausted("anthropic")) {
     try {
       return await anthropicChat(c, system, [{
@@ -178,23 +202,7 @@ async function autoCompleteVision(c: LabmindConfig, system: string, input: Visio
         ],
       }], undefined, c.anthropicVisionModel);
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[VISION] Claude quota hit — falling back to GPT-4o"); }
-      else throw e;
-    }
-  }
-  if (c.openaiApiKey && !isExhausted("openai")) {
-    try {
-      return await openaiVisionChat(c, system, input);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[VISION] GPT-4o quota hit — falling back to Gemini"); }
-      else throw e;
-    }
-  }
-  if (c.geminiApiKey && !isExhausted("gemini")) {
-    try {
-      return await geminiVision(c, system, input);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("gemini"); }
+      if (isQuotaErr(e)) { markExhausted("anthropic"); }
       else throw e;
     }
   }
@@ -207,14 +215,6 @@ async function autoCompleteWithTools(
   messages: { role: "user" | "assistant" | "tool"; content: string; toolName?: string }[],
   tools: ToolSchema[],
 ): Promise<ToolTurnResult> {
-  if (c.anthropicApiKey && !isExhausted("anthropic")) {
-    try {
-      return await anthropicTools(c, system, messages, tools);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("anthropic"); console.warn("[LLM] Claude quota hit — falling back to GPT-4o"); }
-      else throw e;
-    }
-  }
   if (c.openaiApiKey && !isExhausted("openai")) {
     try {
       return await openaiTools(c, system, messages, tools);
@@ -227,7 +227,15 @@ async function autoCompleteWithTools(
     try {
       return await geminiTools(c, system, messages, tools);
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("gemini"); }
+      if (isQuotaErr(e)) { markExhausted("gemini"); console.warn("[LLM] Gemini quota hit — falling back to Claude"); }
+      else throw e;
+    }
+  }
+  if (c.anthropicApiKey && !isExhausted("anthropic")) {
+    try {
+      return await anthropicTools(c, system, messages, tools);
+    } catch (e) {
+      if (isQuotaErr(e)) { markExhausted("anthropic"); }
       else throw e;
     }
   }

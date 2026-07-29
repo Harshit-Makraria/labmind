@@ -21,22 +21,22 @@ const PROVIDERS: { value: Provider; label: string; description: string }[] = [
   {
     value: "auto",
     label: "Auto (Recommended)",
-    description: "Claude first → GPT-4o if Claude exhausted → Gemini → demo. Best reliability.",
-  },
-  {
-    value: "claude",
-    label: "Claude only",
-    description: "Uses claude-sonnet-4-6 exclusively. Best vision accuracy for lab images.",
+    description: "Chat uses OpenAI (falls back to Gemini, then Claude). Photo verification uses Gemini (falls back to OpenAI, then Claude). Falls back to demo if nothing is configured.",
   },
   {
     value: "openai",
-    label: "GPT-4o only",
-    description: "Uses gpt-4o exclusively. Falls back to demo if key is missing or exhausted.",
+    label: "OpenAI only",
+    description: "Uses OpenAI (gpt-4o-mini for chat, gpt-4o for photo verification) exclusively. Falls back to demo if the key is missing or exhausted.",
   },
   {
     value: "gemini",
     label: "Gemini only",
-    description: "Uses gemini-1.5-flash exclusively. Falls back to demo if key is missing or exhausted.",
+    description: "Uses Gemini exclusively for both chat and photo verification. Falls back to demo if the key is missing or exhausted.",
+  },
+  {
+    value: "claude",
+    label: "Claude only",
+    description: "Uses Claude exclusively for both chat and photo verification — switch to this if you'd rather not use the OpenAI/Gemini default.",
   },
   {
     value: "demo",
@@ -119,22 +119,22 @@ export default function SettingsPage() {
       {/* Status cards */}
       <div className="grid grid-cols-3 gap-3">
         <StatusCard
-          label="Claude (sonnet-4-6)"
-          hasKey={data?.hasClaudeKey ?? false}
-          exhausted={!!data?.exhausted_providers?.anthropic}
-          badge="Default"
-        />
-        <StatusCard
-          label="GPT-4o"
+          label="OpenAI"
           hasKey={data?.hasOpenaiKey ?? false}
           exhausted={!!data?.exhausted_providers?.openai}
-          badge="Fallback 1"
+          badge="Chat default"
         />
         <StatusCard
-          label="Gemini (1.5-flash)"
+          label="Gemini"
           hasKey={data?.hasGeminiKey ?? false}
           exhausted={!!data?.exhausted_providers?.gemini}
-          badge="Fallback 2"
+          badge="Vision default"
+        />
+        <StatusCard
+          label="Claude"
+          hasKey={data?.hasClaudeKey ?? false}
+          exhausted={!!data?.exhausted_providers?.anthropic}
+          badge="Available"
         />
       </div>
 
@@ -186,34 +186,10 @@ export default function SettingsPage() {
             Leave blank to keep the existing key. Keys are stored encrypted in the database and never sent to the client.
           </p>
 
-          {(effectiveProvider === "auto" || effectiveProvider === "claude") && (
-            <div>
-              <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
-                Anthropic API Key <span className="text-xs text-[var(--color-accent)] font-semibold">(Default)</span>
-              </label>
-              <div className="relative">
-                <input
-                  type={showClaude ? "text" : "password"}
-                  value={claudeKey}
-                  onChange={(e) => setClaudeKey(e.target.value)}
-                  placeholder={data?.hasClaudeKey ? "•••••••• (key already set)" : "sk-ant-..."}
-                  className="input-base w-full pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowClaude((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
-                >
-                  {showClaude ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
-          )}
-
           {(effectiveProvider === "auto" || effectiveProvider === "openai") && (
             <div>
               <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
-                OpenAI API Key <span className="text-xs text-[var(--color-muted)]">(Fallback 1)</span>
+                OpenAI API Key <span className="text-xs text-[var(--color-accent)] font-semibold">(Default for chat)</span>
               </label>
               <div className="relative">
                 <input
@@ -237,7 +213,7 @@ export default function SettingsPage() {
           {(effectiveProvider === "auto" || effectiveProvider === "gemini") && (
             <div>
               <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
-                Gemini API Key <span className="text-xs text-[var(--color-muted)]">(Fallback 2)</span>
+                Gemini API Key <span className="text-xs text-[var(--color-accent)] font-semibold">(Default for photo verification)</span>
               </label>
               <div className="relative">
                 <input
@@ -253,6 +229,30 @@ export default function SettingsPage() {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
                 >
                   {showGemini ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(effectiveProvider === "auto" || effectiveProvider === "claude") && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">
+                Anthropic API Key <span className="text-xs text-[var(--color-muted)]">(Available — used only as a fallback in Auto, or select &quot;Claude only&quot; above)</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showClaude ? "text" : "password"}
+                  value={claudeKey}
+                  onChange={(e) => setClaudeKey(e.target.value)}
+                  placeholder={data?.hasClaudeKey ? "•••••••• (key already set)" : "sk-ant-..."}
+                  className="input-base w-full pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowClaude((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
+                >
+                  {showClaude ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
             </div>

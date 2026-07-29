@@ -80,13 +80,18 @@ function confidenceFromSpread(spread: number, tolerance: number): number {
   return 0.15;                                  // models fundamentally disagree
 }
 
-/** Providers to sample from, best-first, skipping any that are exhausted. */
+/**
+ * Providers to sample from, best-first, skipping any that are exhausted.
+ * Gemini leads for vision by default (matches provider.ts's autoCompleteVision
+ * waterfall) — Claude is still sampled when configured, just not prioritized
+ * first unless it's the only key set up.
+ */
 function availableProviders(): VisionProvider[] {
   const c = getConfig();
   const out: VisionProvider[] = [];
-  if (c.anthropicApiKey && !isExhausted("anthropic")) out.push("claude");
-  if (c.openaiApiKey && !isExhausted("openai")) out.push("openai");
   if (c.geminiApiKey && !isExhausted("gemini")) out.push("gemini");
+  if (c.openaiApiKey && !isExhausted("openai")) out.push("openai");
+  if (c.anthropicApiKey && !isExhausted("anthropic")) out.push("claude");
   return out;
 }
 
