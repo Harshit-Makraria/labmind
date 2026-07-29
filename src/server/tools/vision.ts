@@ -268,14 +268,30 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
 
   const confidence = round2(0.84 + (h % 6) / 100);
   if (expected.type === "colour_change") {
+    // No graduation scale to compare against here (a colour endpoint is
+    // binary), so this stays a deterministic accept in demo mode — the
+    // genuine-miss jitter below covers the numeric checks, where a
+    // reading vs. tolerance actually gives a real number to miss.
     return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(true, confidence) };
   }
+
+  // Deterministic (same image+step always gives the same demo verdict), but
+  // NOT always a pass — without a live provider key, jitter was previously
+  // bounded to half the tolerance, so `pass` was mathematically incapable of
+  // ever being false for a numeric reading. That meant the retake/failed/
+  // manual-override UX could never be exercised in demo mode — the mode most
+  // judges will actually see. A deterministic ~1-in-7 slice of hashes now
+  // produces a genuine miss outside tolerance, so that path is demoable too.
+  const bucket = h % 20;
+  const genuineMiss = bucket >= 17;
 
   const UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", colour_change: "", absorbance: "AU" };
   const unit = UNIT[expected.type] ?? "";
   const ev = expected.expected_value ?? 0;
   const tol = expected.tolerance || (expected.type === "gel_band" ? 150 : expected.type === "absorbance" ? 0.02 : 0.1);
-  const jitter = (((h % 11) - 5) / 10) * tol;
+  const jitter = genuineMiss
+    ? (bucket % 2 === 0 ? 1 : -1) * tol * 1.6 // clearly outside tolerance — a real miss
+    : (((bucket % 11) - 5) / 10) * tol;        // realistic in-range spread
   const reading = round2(ev + jitter);
   const deviation = round2(reading - ev);
   // Always derive pass from math — never from a heuristic bool
