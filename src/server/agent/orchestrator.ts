@@ -144,7 +144,7 @@ async function runDemo(req: AgentChatRequest, ctx: ToolContext, emit: Emit, used
   emit({ type: "plan", text: planText(intent, reagents, nums) });
 
   const results: Record<string, unknown>[] = [];
-  for (const c of calls) {
+  const runTool = (c: { tool: string; args: Record<string, unknown> }) => {
     emit({ type: "tool_call", tool: c.tool, text: summarizeArgs(c.args) });
     const tool = toolByName(c.tool)!;
     const out = tool.run(c.args, ctx) as Record<string, unknown>;
@@ -152,11 +152,76 @@ async function runDemo(req: AgentChatRequest, ctx: ToolContext, emit: Emit, used
     emit({ type: "tool_result", tool: c.tool, text: truncate(outStr, 200), data: out });
     used.push({ tool: c.tool, input: summarizeArgs(c.args), output: truncate(outStr, 200) });
     results.push(out);
+    return out;
+  };
+
+  const primary = calls[0] ? runTool(calls[0]) : {};
+
+  // ── Real chaining, not just an if/else dispatcher ──────────────────
+  // A second tool call, chosen from the FIRST call's actual output — not
+  // pattern-matched from the user's message like the primary call above.
+  // This is what makes it a genuine plan -> act -> observe -> re-plan step
+  // rather than a fixed one-tool-per-turn lookup, and it works identically
+  // with no API key configured (the mode most likely to be running live).
+  const followUp = planFollowUp(intent, primary, reagents);
+  let followUpPlan = "";
+  if (followUp) {
+    followUpPlan = followUp.reason;
+    emit({ type: "plan", text: followUp.reason });
+    runTool(followUp.call);
   }
 
-  const answer = composeAnswer(intent, results, exp, reagents);
+  const answer = composeAnswer(intent, results, exp, reagents, !!followUp);
   streamText(answer, emit);
-  return { plan: planText(intent, reagents, nums), answer };
+  const plan = followUpPlan ? `${planText(intent, reagents, nums)} Then: ${followUpPlan}` : planText(intent, reagents, nums);
+  return { plan, answer };
+}
+
+/**
+ * Decide a follow-up tool call from the PRIMARY call's real output. Each
+ * branch fires only when the actual data warrants escalation, using the
+ * `notify_instructor` tool that chat previously never triggered.
+ */
+function planFollowUp(
+  intent: string,
+  primary: Record<string, unknown>,
+  reagents: string[],
+): { call: { tool: string; args: Record<string, unknown> }; reason: string } | null {
+  if (intent === "safety") {
+    const alerts = (primary.alerts as { severity: string; type: string }[] | undefined) ?? [];
+    const worst = alerts.find((a) => a.severity === "critical") ?? alerts.find((a) => a.severity === "high");
+    if (worst) {
+      return {
+        reason: `${worst.severity}-severity ${worst.type} risk found → escalating to the instructor console.`,
+        call: {
+          tool: "notify_instructor",
+          args: { message: `Chat flagged a ${worst.severity}-severity ${worst.type} risk mixing ${reagents.join(" + ")}.` },
+        },
+      };
+    }
+  }
+  if (intent === "downstream") {
+    const steps = (primary.unreliable_steps as number[] | undefined) ?? [];
+    if (steps.length) {
+      return {
+        reason: `${steps.length} downstream step${steps.length === 1 ? "" : "s"} now unreliable → notifying the instructor to flag them for review.`,
+        call: {
+          tool: "notify_instructor",
+          args: { message: `Step ${primary.skipped_step} was skipped — steps ${steps.join(", ")} may be unreliable and need review.` },
+        },
+      };
+    }
+  }
+  if (intent === "interpret" && primary.severity === "red") {
+    return {
+      reason: `Result graded red (${primary.deviation_percent}% off) → notifying the instructor this student may need help.`,
+      call: {
+        tool: "notify_instructor",
+        args: { message: `Result deviates ${primary.deviation_percent}% from expected (red) — student may need in-person help.` },
+      },
+    };
+  }
+  return null;
 }
 
 // ─── Demo answer composition (grounded in real tool output) ─────────
@@ -166,14 +231,16 @@ function composeAnswer(
   results: Record<string, unknown>[],
   exp: ReturnType<typeof getExperiment>,
   reagents: string[],
+  notified = false,
 ): string {
   const r = results[0] ?? {};
+  const notifiedNote = notified ? " I've notified your instructor." : "";
   switch (intent) {
     case "safety": {
       const alerts = (r.alerts as { severity: string; type: string; action: string }[]) ?? [];
       if (r.safe) return `Combining ${reagents.join(" + ")} is OK in this context — no conflicts in the safety database. Still add slowly and keep your goggles on.`;
       const top = alerts[0];
-      return `⚠️ Caution: ${reagents.join(" + ")} is flagged as **${top.severity}** (${top.type}). ${top.action} I've logged this on the safety record.`;
+      return `⚠️ Caution: ${reagents.join(" + ")} is flagged as **${top.severity}** (${top.type}). ${top.action} I've logged this on the safety record.${notifiedNote}`;
     }
     case "reagent": {
       const conflicts = (r.known_conflicts as { with: string; severity: string }[]) ?? [];
@@ -189,12 +256,12 @@ function composeAnswer(
     case "rate":
       return `Rate = 1/time = **${r.rate_per_second} s⁻¹**. A faster colour change means a higher rate — temperature and concentration both push it up.`;
     case "interpret": {
-      return `You're **${r.deviation_percent}% off** (${r.severity}). ${r.diagnosis} ${r.improvement}`;
+      return `You're **${r.deviation_percent}% off** (${r.severity}). ${r.diagnosis} ${r.improvement}${notifiedNote}`;
     }
     case "downstream": {
       const steps = (r.unreliable_steps as number[]) ?? [];
       if (!steps.length) return `Step ${r.skipped_step} doesn't have downstream dependencies — you can recover by completing it now.`;
-      return `Because step ${r.skipped_step} was skipped, steps ${steps.join(", ")} may now be unreliable — I've flagged them. Redo step ${r.skipped_step} before trusting those results.`;
+      return `Because step ${r.skipped_step} was skipped, steps ${steps.join(", ")} may now be unreliable — I've flagged them. Redo step ${r.skipped_step} before trusting those results.${notifiedNote}`;
     }
     case "library": {
       const list = (results[0] as unknown as { id: string; name: string; domain: string }[]) ?? [];

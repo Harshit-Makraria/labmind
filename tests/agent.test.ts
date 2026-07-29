@@ -32,6 +32,25 @@ describe("agent orchestrator (demo loop runs real tools)", () => {
     const events = await collect("what experiments can I run?");
     expect(events.filter((e) => e.type === "tool_call").map((e) => e.tool)).toContain("search_library");
   });
+
+  it("chains a SECOND tool call from the first one's real output for a high-severity conflict", async () => {
+    // KMnO4 + H2O2 is a real "high" severity pair in reagent-safety.ts — the
+    // demo planner should not just call check_safety and stop; it should
+    // read that result and escalate to notify_instructor on its own.
+    const events = await collect("Is it safe to mix KMnO4 and H2O2?", { experiment_id: "acid-base-titration" });
+    const calls = events.filter((e) => e.type === "tool_call").map((e) => e.tool);
+    expect(calls).toEqual(["check_safety", "notify_instructor"]);
+    const plans = events.filter((e) => e.type === "plan").map((e) => e.text);
+    expect(plans.length).toBeGreaterThanOrEqual(2); // one plan for the primary call, one for the follow-up
+    const answer = events.filter((e) => e.type === "delta").map((e) => e.text).join("");
+    expect(answer.toLowerCase()).toMatch(/notified/);
+  });
+
+  it("does NOT chain a follow-up for a low/medium-severity conflict", async () => {
+    const events = await collect("Is it safe to mix HCl and NaOH?", { experiment_id: "acid-base-titration" });
+    const calls = events.filter((e) => e.type === "tool_call").map((e) => e.tool);
+    expect(calls).toEqual(["check_safety"]);
+  });
 });
 
 describe("agent tools compute correctly", () => {
