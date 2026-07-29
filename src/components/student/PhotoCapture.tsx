@@ -208,7 +208,11 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={preview} alt="Captured" className="anim-scale-in max-h-72 w-full rounded-[var(--radius-btn)] object-cover" />
+          <img
+            src={preview}
+            alt="Captured"
+            className="anim-scale-in max-h-72 w-full rounded-[var(--radius-btn)] bg-black/5 object-contain"
+          />
         ) : (
           <div className="space-y-3">
             <button
@@ -239,7 +243,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
             </div>
           </div>
         )}
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => onPick(e.target.files?.[0])} />
 
         {/* RETAKE — image too poor (< 40% confidence) */}
         {result?.verification_status === "retake" && (

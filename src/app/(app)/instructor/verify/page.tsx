@@ -266,7 +266,7 @@ function ReviewDetail({
           <img
             src={v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`}
             alt={`Step ${v.step_number} capture`}
-            className="anim-scale-in h-56 w-full rounded-[0.9rem] object-cover bg-black/5"
+            className="anim-scale-in h-56 w-full rounded-[0.9rem] object-contain bg-black/5"
           />
         ) : (
           <div className="flex h-56 items-center justify-center rounded-[0.9rem] border-2 border-dashed border-black/15 bg-[var(--color-surface)] text-center text-sm text-[var(--color-muted)]">
