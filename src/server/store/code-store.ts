@@ -6,7 +6,17 @@
 import "server-only";
 import { db } from "@/server/db";
 import { invalidateSessionCache } from "@/server/store/session-store";
+import { getExperiment } from "@/server/experiments";
 import type { InstructorSession, StepRecord, VerificationEntry, VerificationStatus } from "@/lib/types";
+
+const VISION_UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", absorbance: "AU", colour_change: "" };
+
+/** Unit for this entry's ai_reading, derived from the step's own declared vision_expected.type — not hardcoded to "mL" for every experiment. */
+function unitFor(experimentId: string, stepNumber: number): string {
+  const step = getExperiment(experimentId).protocol.steps.find((s) => s.step_number === stepNumber);
+  const type = step?.vision_expected?.type;
+  return (type && VISION_UNIT[type]) ?? "mL";
+}
 
 // ─── Seed ────────────────────────────────────────────────────────────
 
@@ -199,8 +209,9 @@ export async function listVerifications(status?: VerificationStatus): Promise<Ve
   const rows = await db.verificationEntry.findMany({
     where: status ? { status } : undefined,
     orderBy: { submittedAt: "desc" },
+    include: { session: { select: { experimentId: true } } },
   });
-  return rows.map(rowToEntry);
+  return rows.map((row) => ({ ...rowToEntry(row), unit: unitFor(row.session.experimentId, row.stepNumber) }));
 }
 
 /**

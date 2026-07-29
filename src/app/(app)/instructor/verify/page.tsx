@@ -315,7 +315,7 @@ function ReviewDetail({
           style={{ borderColor: hasCorrection ? "var(--color-brand)" : "rgba(15,41,66,.15)" }}
         />
         <span className="text-xs text-[var(--color-muted)]">
-          {hasCorrection ? "differs from the AI — yours will be recorded as authoritative" : "mL"}
+          {hasCorrection ? "differs from the AI — yours will be recorded as authoritative" : (v.unit ?? "mL")}
         </span>
       </div>
 

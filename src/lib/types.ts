@@ -300,6 +300,8 @@ export interface VerificationEntry {
   status: VerificationStatus;
   instructor_comment: string | null;
   resolved_at: string | null;
+  /** Unit for ai_reading (mL / bp / AU), derived from the step's vision_expected.type. Optional — absent for entries built outside listVerifications(). */
+  unit?: string;
 }
 
 // ─── Measured vision accuracy ───────────────────────────────────────

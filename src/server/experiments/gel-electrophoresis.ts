@@ -13,7 +13,7 @@ export const GEL_ELECTROPHORESIS: Experiment = {
   hazard_level: "medium",
   theoretical: { label: "Unknown fragment size", value: 1500, unit: "bp" },
   step_count: 8,
-  reagent_names: ["agarose", "TAE buffer", "SYBR Safe", "DNA ladder", "loading dye", "ethanol"],
+  reagent_names: ["agarose", "TAE buffer", "SYBR Safe", "DNA ladder", "loading dye"],
   protocol: {
     experiment_name: "DNA Gel Electrophoresis",
     steps: [

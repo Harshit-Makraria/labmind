@@ -21,6 +21,23 @@ export interface ConcentrationRule {
   message: string;
 }
 
+/**
+ * A single-reagent handling hazard that applies regardless of concentration
+ * — for reagents with no molarity (gels, stains, biological reagents) where
+ * CONCENTRATION_WARNINGS' "> threshold_molarity" check structurally can't
+ * apply. Without this, any experiment whose hazards aren't chemical-mixing
+ * or molarity-based (gel electrophoresis's stains/gels/UV) got zero dynamic
+ * safety signal — not because it's genuinely hazard-free, but because
+ * neither existing rule shape fit its reagents.
+ */
+export interface HandlingRule {
+  reagent: string;
+  severity: Severity;
+  type: string;
+  message: string;
+  action: string;
+}
+
 export const CONFLICTS: ConflictRule[] = [
   { reagents: ["HCl", "NaOH"], type: "Neutralization", severity: "medium", description: "Exothermic neutralization. Controlled in titration context.", action: "Proceed slowly. Swirl flask gently." },
   { reagents: ["H2SO4", "NaOH"], type: "Violent Neutralization", severity: "high", description: "Concentrated H2SO4 + NaOH: extreme exothermic reaction.", action: "STOP. Verify concentrations. Use dilute solutions only." },
@@ -54,4 +71,21 @@ export const CONCENTRATION_WARNINGS: ConcentrationRule[] = [
   { reagent: "H2SO4", threshold_molarity: 6, severity: "high", message: "Concentrated H2SO4 (>6M) — severe burns and dehydration hazard." },
   { reagent: "NaOH", threshold_molarity: 6, severity: "high", message: "Concentrated NaOH (>6M) — caustic, causes severe burns." },
   { reagent: "HNO3", threshold_molarity: 6, severity: "high", message: "Concentrated HNO3 (>6M) — strong oxidizer and corrosive." },
+];
+
+export const HANDLING_WARNINGS: HandlingRule[] = [
+  {
+    reagent: "SYBR Safe",
+    type: "Nucleic Acid Stain",
+    severity: "medium",
+    message: "Marketed as safer than ethidium bromide, but still binds nucleic acids and should be treated as a potential mutagen.",
+    action: "Wear gloves, avoid skin/eye contact, and dispose of stained gel waste separately — never down the drain.",
+  },
+  {
+    reagent: "agarose",
+    type: "Thermal Burn Hazard",
+    severity: "medium",
+    message: "Molten agarose (just out of the microwave) is well above 90°C and looks deceptively similar to when it's cool.",
+    action: "Swirl to check for undissolved granules, let it cool to hand-warm before pouring, and use heat-resistant gloves when handling the flask.",
+  },
 ];

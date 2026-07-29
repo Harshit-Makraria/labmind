@@ -31,4 +31,16 @@ describe("safety engine (golden dataset)", () => {
     const res = checkSafety([{ name: "NaOCl" }, { name: "HCl", concentration: "8M" }], []);
     expect(res.alerts[0].severity).toBe("high");
   });
+
+  it("flags SYBR Safe as a handling hazard even with no molarity/conflict pair (gel electrophoresis)", () => {
+    const res = checkSafety([{ name: "SYBR Safe" }], []);
+    expect(res.conflict).toBe(true);
+    expect(res.alerts[0].type).toMatch(/Stain/i);
+  });
+
+  it("flags molten agarose as a thermal burn hazard", () => {
+    const res = checkSafety([{ name: "agarose", concentration: "1%" }], []);
+    expect(res.conflict).toBe(true);
+    expect(res.alerts[0].type).toMatch(/Thermal|Burn/i);
+  });
 });

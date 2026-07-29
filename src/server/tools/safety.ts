@@ -10,6 +10,7 @@ import type { Reagent, SafetyConflict, SafetyResult, Severity } from "@/lib/type
 import {
   CONCENTRATION_WARNINGS,
   CONFLICTS,
+  HANDLING_WARNINGS,
   type ConflictRule,
 } from "@/server/data/reagent-safety";
 
@@ -53,6 +54,17 @@ export function checkSafety(reagents: Reagent[], history: Reagent[]): SafetyResu
           action: "Confirm you need this concentration; use the fume hood and full PPE.",
         });
       }
+    }
+  }
+
+  // Single-reagent handling hazards — for reagents with no molarity to
+  // threshold-check (stains, gels), so an experiment like gel electrophoresis
+  // isn't a silent permanent no-op just because none of its reagents fit the
+  // pairwise-conflict or concentration-threshold shapes above.
+  for (const r of reagents) {
+    const rule = HANDLING_WARNINGS.find((w) => norm(w.reagent) === norm(r.name));
+    if (rule) {
+      alerts.push({ reagents: [r.name], type: rule.type, severity: rule.severity, description: rule.message, action: rule.action });
     }
   }
 
