@@ -256,9 +256,15 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const h = hash(img.slice(0, 256) + String(req.step_number));
   const metrics = await getImageMetrics(img).catch(() => null);
 
-  const clearEnough = metrics && metrics.width >= 320 && metrics.height >= 240 && metrics.contrast >= 12;
-  if (!clearEnough) {
-    return { reading: null, confidence: 0.45, pass: false, deviation: null, message: "Image too small or unclear to analyse.", notes: "Hold steady, fill the frame, use good lighting.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "needs_review" as VisionVerificationStatus };
+  // Same gate the live path uses (assessQuality), not a second, separately
+  // tuned width/height/contrast check — the two used different metrics
+  // (short-edge + Laplacian sharpness vs. absolute width/height + tonal
+  // contrast) and different thresholds, so the same photo could pass one
+  // gate and fail the other depending on whether a live provider key was
+  // configured.
+  const quality = await assessQuality(img);
+  if (!quality.ok) {
+    return { reading: null, confidence: 0.2, pass: false, deviation: null, message: quality.reason ?? "Image quality too low to analyse.", notes: "Retake the photo and submit again.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "retake" as VisionVerificationStatus };
   }
 
   const mismatch = metrics && shapeMismatch(expected.type, metrics);

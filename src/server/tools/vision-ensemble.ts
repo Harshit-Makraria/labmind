@@ -55,6 +55,28 @@ function median(xs: number[]): number {
 }
 
 /**
+ * For a colour_change check there is no numeric median to fall back on, so
+ * the categorical verdict has to come from ONE observation's `observed_colour`
+ * — previously always `observations[0]`, whichever provider happened to
+ * return first. If two providers agree on a colour and one doesn't, the vote
+ * winner is what gets judged; only when there's no majority (every provider
+ * says something different, or too few samples) does this fall back to the
+ * first observation, same as before.
+ */
+export function colourVoteRepresentative(observations: { provider: VisionProvider; obs: RawObservation }[]): RawObservation {
+  const colours = observations.map((o) => (o.obs.observed_colour ?? "").trim().toLowerCase()).filter(Boolean);
+  if (colours.length < 2) return observations[0].obs;
+
+  const counts = new Map<string, number>();
+  for (const c of colours) counts.set(c, (counts.get(c) ?? 0) + 1);
+  const maxCount = Math.max(...counts.values());
+  if (maxCount < 2) return observations[0].obs; // no real majority — every provider disagreed
+
+  const winner = [...counts.entries()].find(([, n]) => n === maxCount)?.[0];
+  return observations.find((o) => (o.obs.observed_colour ?? "").trim().toLowerCase() === winner)?.obs ?? observations[0].obs;
+}
+
+/**
  * Map observed spread onto a confidence score.
  * `tolerance` is the experiment's own pass tolerance, so agreement is judged
  * on the scale that actually matters for this measurement.
@@ -143,7 +165,7 @@ export async function ensembleRead(
 
   // No numeric readings at all (e.g. colour_change, or nothing legible).
   if (numeric.length === 0) {
-    const rep = observations[0].obs;
+    const rep = colourVoteRepresentative(observations);
     const selfConf = round2(Math.max(0, Math.min(1, rep.confidence ?? 0.5)));
     // With several samples and no number anywhere, unreadability is the
     // consistent finding — that agreement is itself informative.

@@ -61,7 +61,7 @@ describe("vision tool (golden dataset)", () => {
     const resolved = await r;
     expect(resolved.pass).toBe(false);
     expect(resolved.confidence).toBeLessThan(0.75);
-    expect(resolved.message.toLowerCase()).toMatch(/unclear|image is too small|does not resemble/);
+    expect(resolved.message.toLowerCase()).toMatch(/unclear|too small|does not resemble|move closer/);
   });
 
   it("gel-like image does not pass burette verification", async () => {
