@@ -5,24 +5,48 @@
 
 ---
 
-## ✅ CURRENT STATE (supersedes the roadmap below)
+## ✅ CURRENT STATE (supersedes the roadmap below — last verified 2026-07-29)
 
-**The project is complete and pivoted to a single root-level Next.js app** so it deploys to
-Vercel like any standard Next.js project (the original Python/FastAPI + monorepo plan below is
-kept as historical context only).
+**The project is a single root-level Next.js app**, deployed on Vercel, backed by a real
+Postgres database. The original Python/FastAPI + monorepo plan further down this file, and the
+brief "in-memory store" phase that followed it, are both historical context only.
 
-- **One deployable unit.** The FastAPI backend was ported to **Next.js Route Handlers**
-  (`src/app/api/*`). No separate server, no Python, no Turborepo/workspaces.
-- **All 5 features implemented and verified** end-to-end (APIs match the golden dataset; UI
-  driven in-browser): protocol → vision → safety modal → result diagnosis → instructor dashboard
-  (+ passcode gate + agent-activity trace panel).
-- **LLM layer stays provider-agnostic** (`demo`/openai/azure/claude) in `src/server/llm`; default
-  **demo** is deterministic and key-free. **In-memory store** in `src/server/store` (swappable).
-- **Build is green** (`pnpm build` exits 0; `pnpm install` clean after declining sharp's native
-  build in `pnpm-workspace.yaml`).
+- **One deployable unit.** The whole backend is **Next.js Route Handlers**
+  (`src/app/api/[[...route]]/route.ts`, a Hono catch-all). No separate server, no Python.
+- **Real persistence, not a demo store.** Prisma + Postgres (Supabase). Sessions, verification
+  queues, agent-decision traces, and the tamper-evident audit log all survive restarts and
+  serverless cold starts — see `prisma/schema.prisma`.
+- **Real auth.** NextAuth v5 (credentials + Prisma adapter) — signup/login, not just an
+  instructor passcode (the passcode still exists as a legacy fallback).
+- **4 experiments, not 1**: acid-base titration (flagship), DNA gel electrophoresis, iodine
+  clock reaction, and AUR (absorbance using a reference) — each with its own vision-check type,
+  reagent safety data, result-interpretation copy, and demo pre-lab quiz.
+- **The AI verification pipeline is layered, not a single model call**: blind reading (model
+  never told the expected value) → two-pass zoom-and-crop → cross-provider ensemble (when
+  multiple keys are configured) → a zero-AI physical-constraints check (range, graduation,
+  monotonicity, replicate concordance) → an adaptive per-student verification threshold from a
+  risk engine (safety alerts, overrides, skips, retries, pacing, caught duplicate photos,
+  pre-lab result). All of this is *wired into the actual routing decision*, not display-only.
+- **Academic-integrity system**: pacing/timing analysis (a titration can't be done in 40s,
+  however good the photo looks), cross-cohort duplicate-photo detection (perceptual hash, not
+  scoped to just one student), and an append-only tamper-evident audit log (hash fixed at write
+  time, so a later edit is actually detectable — not just claimed).
+- **A real agent, even key-free.** The chat assistant (`/assistant`) plans, calls real tools,
+  and chains a second tool call from the first one's actual output (e.g. a high-severity safety
+  conflict auto-escalates to the instructor console) — in demo mode too, not only with a live
+  LLM key.
+- **LLM layer stays provider-agnostic** (`demo`/`auto`/`openai`/`gemini`/`claude`) in
+  `src/server/llm`; `auto` waterfalls Claude → OpenAI → Gemini across whichever keys are
+  configured and falls back to demo. Demo mode is deterministic but **genuinely fallible** —
+  it can reject a wrong-shaped photo and can genuinely fail a numeric reading, so the
+  retake/needs-review/manual-override flows are demoable with zero API key.
+- **Build and tests are green** (`pnpm build` exits 0; `pnpm test` — vitest — covers vision,
+  safety, the agent loop, result interpretation, the physical-constraints layer, the audit
+  chain, and per-experiment quiz content).
 
-Run: `pnpm install && pnpm dev` → http://localhost:3000. Deploy: push to GitHub → import in
-Vercel (auto-detected Next.js, zero config). See [README.md](README.md).
+Run: `pnpm install`, set `DATABASE_URL`/`DIRECT_URL`/`AUTH_SECRET`/`AUTH_URL` in `.env.local`,
+`npx prisma migrate deploy`, then `pnpm dev` → http://localhost:3000. Deploy: push to GitHub →
+import in Vercel. See [README.md](README.md) for the full route list and environment reference.
 
 The current source tree lives at the repo root under `src/` — **not** under `apps/`.
 
