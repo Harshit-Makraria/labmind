@@ -42,6 +42,7 @@ import {
 import { getAccuracyReport } from "@/server/store/accuracy";
 import { getLlmStatus, loadRuntimeSettings, saveRuntimeSettings } from "@/server/runtime-config";
 import { exhaustedProviders, anyExhausted } from "@/server/llm/provider-state";
+import { fetchModelCatalog } from "@/server/llm/model-catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -130,22 +131,55 @@ app.get("/meta", (c) => {
 app.get("/settings/llm", async (c) => {
   const status = await getLlmStatus();
   const keysExhausted = anyExhausted();
+  const cfg = getConfig();
   return c.json({
     ...status,
     keys_exhausted: keysExhausted,
     exhausted_providers: exhaustedProviders(),
+    // Effective model per provider/capability right now (override if set via
+    // Settings, otherwise the env default) — what the picker shows as selected.
+    models: {
+      openai: { chat: cfg.openaiModel, vision: cfg.openaiVisionModel },
+      gemini: { chat: cfg.geminiModel, vision: cfg.geminiVisionModel },
+      claude: { chat: cfg.anthropicModel, vision: cfg.anthropicVisionModel },
+    },
   });
 });
 
 app.patch("/settings/llm", async (c) => {
-  const body = await c.req.json<{ provider?: string; openai_key?: string; gemini_key?: string; anthropic_key?: string }>();
+  const body = await c.req.json<{
+    provider?: string; openai_key?: string; gemini_key?: string; anthropic_key?: string;
+    openai_chat_model?: string; openai_vision_model?: string;
+    gemini_chat_model?: string; gemini_vision_model?: string;
+    anthropic_chat_model?: string; anthropic_vision_model?: string;
+  }>();
   const updated = await saveRuntimeSettings({
     provider: body.provider as Parameters<typeof saveRuntimeSettings>[0]["provider"],
     openaiKey: body.openai_key,
     geminiKey: body.gemini_key,
     anthropicKey: body.anthropic_key,
+    openaiChatModel: body.openai_chat_model,
+    openaiVisionModel: body.openai_vision_model,
+    geminiChatModel: body.gemini_chat_model,
+    geminiVisionModel: body.gemini_vision_model,
+    anthropicChatModel: body.anthropic_chat_model,
+    anthropicVisionModel: body.anthropic_vision_model,
   });
   return c.json({ ok: true, provider: updated.provider });
+});
+
+// Live model catalog for the Settings picker — fetches from the provider's
+// own API using whichever key is already saved, so the list can't go stale
+// the way a hardcoded model ID would.
+app.get("/settings/models", async (c) => {
+  const provider = c.req.query("provider");
+  if (provider !== "openai" && provider !== "gemini" && provider !== "claude") {
+    return c.json({ error: "provider must be one of: openai, gemini, claude" }, 400);
+  }
+  const cfg = getConfig();
+  const apiKey = provider === "openai" ? cfg.openaiApiKey : provider === "gemini" ? cfg.geminiApiKey : cfg.anthropicApiKey;
+  const result = await fetchModelCatalog(provider, apiKey);
+  return c.json(result);
 });
 
 // ─── Protocol parse ──────────────────────────────────────────────────

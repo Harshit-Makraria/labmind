@@ -12,6 +12,13 @@ export interface LlmRuntimeSettings {
   openaiKey?: string;
   geminiKey?: string;
   anthropicKey?: string;
+  /** Per-provider, per-capability model overrides — set from the Settings page's model picker. Unset falls back to the env default in config.ts. */
+  openaiChatModel?: string;
+  openaiVisionModel?: string;
+  geminiChatModel?: string;
+  geminiVisionModel?: string;
+  anthropicChatModel?: string;
+  anthropicVisionModel?: string;
 }
 
 const KEYS = {
@@ -19,6 +26,12 @@ const KEYS = {
   openaiKey: "llm.openai_key",
   geminiKey: "llm.gemini_key",
   anthropicKey: "llm.anthropic_key",
+  openaiChatModel: "llm.openai_chat_model",
+  openaiVisionModel: "llm.openai_vision_model",
+  geminiChatModel: "llm.gemini_chat_model",
+  geminiVisionModel: "llm.gemini_vision_model",
+  anthropicChatModel: "llm.anthropic_chat_model",
+  anthropicVisionModel: "llm.anthropic_vision_model",
 } as const;
 
 let _cache: LlmRuntimeSettings | null = null;
@@ -35,6 +48,12 @@ export async function loadRuntimeSettings(): Promise<LlmRuntimeSettings> {
     openaiKey: map[KEYS.openaiKey] || undefined,
     geminiKey: map[KEYS.geminiKey] || undefined,
     anthropicKey: map[KEYS.anthropicKey] || undefined,
+    openaiChatModel: map[KEYS.openaiChatModel] || undefined,
+    openaiVisionModel: map[KEYS.openaiVisionModel] || undefined,
+    geminiChatModel: map[KEYS.geminiChatModel] || undefined,
+    geminiVisionModel: map[KEYS.geminiVisionModel] || undefined,
+    anthropicChatModel: map[KEYS.anthropicChatModel] || undefined,
+    anthropicVisionModel: map[KEYS.anthropicVisionModel] || undefined,
   };
   _loaded = true;
   return _cache;
@@ -51,6 +70,12 @@ export async function saveRuntimeSettings(patch: Partial<LlmRuntimeSettings>): P
   if (patch.openaiKey !== undefined) updates.push({ key: KEYS.openaiKey, value: patch.openaiKey });
   if (patch.geminiKey !== undefined) updates.push({ key: KEYS.geminiKey, value: patch.geminiKey });
   if (patch.anthropicKey !== undefined) updates.push({ key: KEYS.anthropicKey, value: patch.anthropicKey });
+  if (patch.openaiChatModel !== undefined) updates.push({ key: KEYS.openaiChatModel, value: patch.openaiChatModel });
+  if (patch.openaiVisionModel !== undefined) updates.push({ key: KEYS.openaiVisionModel, value: patch.openaiVisionModel });
+  if (patch.geminiChatModel !== undefined) updates.push({ key: KEYS.geminiChatModel, value: patch.geminiChatModel });
+  if (patch.geminiVisionModel !== undefined) updates.push({ key: KEYS.geminiVisionModel, value: patch.geminiVisionModel });
+  if (patch.anthropicChatModel !== undefined) updates.push({ key: KEYS.anthropicChatModel, value: patch.anthropicChatModel });
+  if (patch.anthropicVisionModel !== undefined) updates.push({ key: KEYS.anthropicVisionModel, value: patch.anthropicVisionModel });
 
   await Promise.all(
     updates.map((u) =>

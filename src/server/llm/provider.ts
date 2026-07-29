@@ -249,8 +249,8 @@ function isQuotaErr(e: unknown): boolean {
 
 // ─── Gemini ──────────────────────────────────────────────────────────
 
-function geminiUrl(c: LabmindConfig, method: string): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${c.geminiModel}:${method}?key=${c.geminiApiKey}`;
+function geminiUrl(c: LabmindConfig, method: string, model?: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model ?? c.geminiModel}:${method}?key=${c.geminiApiKey}`;
 }
 
 async function geminiText(c: LabmindConfig, system: string, user: string): Promise<string> {
@@ -272,7 +272,7 @@ async function geminiText(c: LabmindConfig, system: string, user: string): Promi
 }
 
 async function geminiVision(c: LabmindConfig, system: string, input: VisionInput, temperature = 0.1): Promise<string> {
-  const res = await fetch(geminiUrl(c, "generateContent"), {
+  const res = await fetch(geminiUrl(c, "generateContent", c.geminiVisionModel), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -17,6 +17,8 @@ export interface LabmindConfig {
   demoMode: boolean;
   geminiApiKey?: string;
   geminiModel: string;
+  /** Model used ONLY for image-analysis calls — separate from geminiModel (chat/JSON) since Gemini is the default vision provider and deserves its own picked model. */
+  geminiVisionModel: string;
   openaiApiKey?: string;
   openaiModel: string;
   /** Model used ONLY for image-analysis calls — deliberately separate from openaiModel (chat/JSON), which may be set to a cheaper model. */
@@ -39,13 +41,16 @@ export function getConfig(): LabmindConfig {
     llmProvider: rt?.provider ?? (env.LLM_PROVIDER as LlmProvider) ?? "auto",
     demoMode: env.DEMO_MODE === "true",
     geminiApiKey: rt?.geminiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY,
-    geminiModel: env.GEMINI_MODEL ?? "gemini-1.5-flash",
+    // Model picked from Settings (backed by the live model-catalog fetch)
+    // always wins over the env default, which itself can drift out of date.
+    geminiModel: rt?.geminiChatModel ?? env.GEMINI_MODEL ?? "gemini-1.5-flash",
+    geminiVisionModel: rt?.geminiVisionModel ?? env.GEMINI_VISION_MODEL ?? env.GEMINI_MODEL ?? "gemini-1.5-flash",
     openaiApiKey: rt?.openaiKey ?? env.OPENAI_API_KEY,
-    openaiModel: env.OPENAI_MODEL ?? "gpt-4o-mini",
-    openaiVisionModel: env.OPENAI_VISION_MODEL ?? "gpt-4o",
+    openaiModel: rt?.openaiChatModel ?? env.OPENAI_MODEL ?? "gpt-4o-mini",
+    openaiVisionModel: rt?.openaiVisionModel ?? env.OPENAI_VISION_MODEL ?? "gpt-4o",
     anthropicApiKey: rt?.anthropicKey ?? env.ANTHROPIC_API_KEY,
-    anthropicModel: env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
-    anthropicVisionModel: env.ANTHROPIC_VISION_MODEL ?? "claude-sonnet-5",
+    anthropicModel: rt?.anthropicChatModel ?? env.ANTHROPIC_MODEL ?? "claude-3-5-sonnet-latest",
+    anthropicVisionModel: rt?.anthropicVisionModel ?? env.ANTHROPIC_VISION_MODEL ?? "claude-sonnet-5",
     azureEndpoint: env.AZURE_OPENAI_ENDPOINT,
     azureApiKey: env.AZURE_OPENAI_API_KEY,
     azureDeployment: env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o-mini",

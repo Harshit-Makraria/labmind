@@ -1,12 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, CheckCircle2, Eye, EyeOff, FlaskConical, Key, Save, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, Eye, EyeOff, FlaskConical, Key, RefreshCw, Save, XCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
 
 type Provider = "auto" | "claude" | "openai" | "gemini" | "demo";
+type CatalogProvider = "openai" | "gemini" | "claude";
 
 interface LlmStatus {
   provider: Provider;
@@ -15,6 +16,13 @@ interface LlmStatus {
   hasGeminiKey: boolean;
   keys_exhausted: boolean;
   exhausted_providers: Record<string, string>;
+  models: Record<CatalogProvider, { chat: string; vision: string }>;
+}
+
+interface ModelCatalogResponse {
+  models: { id: string; label?: string }[];
+  live: boolean;
+  error?: string;
 }
 
 const PROVIDERS: { value: Provider; label: string; description: string }[] = [
@@ -64,7 +72,21 @@ export default function SettingsPage() {
   const [showOpenai, setShowOpenai] = useState(false);
   const [showGemini, setShowGemini] = useState(false);
 
+  // Model picks — null means "untouched, use whatever the server reports as effective".
+  const [openaiChatModel, setOpenaiChatModel] = useState<string | null>(null);
+  const [openaiVisionModel, setOpenaiVisionModel] = useState<string | null>(null);
+  const [geminiChatModel, setGeminiChatModel] = useState<string | null>(null);
+  const [geminiVisionModel, setGeminiVisionModel] = useState<string | null>(null);
+  const [claudeChatModel, setClaudeChatModel] = useState<string | null>(null);
+  const [claudeVisionModel, setClaudeVisionModel] = useState<string | null>(null);
+
   const effectiveProvider = provider ?? data?.provider ?? "auto";
+  const effOpenaiChat = openaiChatModel ?? data?.models?.openai?.chat ?? "";
+  const effOpenaiVision = openaiVisionModel ?? data?.models?.openai?.vision ?? "";
+  const effGeminiChat = geminiChatModel ?? data?.models?.gemini?.chat ?? "";
+  const effGeminiVision = geminiVisionModel ?? data?.models?.gemini?.vision ?? "";
+  const effClaudeChat = claudeChatModel ?? data?.models?.claude?.chat ?? "";
+  const effClaudeVision = claudeVisionModel ?? data?.models?.claude?.vision ?? "";
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -72,6 +94,12 @@ export default function SettingsPage() {
       if (claudeKey) body.anthropic_key = claudeKey;
       if (openaiKey) body.openai_key = openaiKey;
       if (geminiKey) body.gemini_key = geminiKey;
+      if (openaiChatModel) body.openai_chat_model = openaiChatModel;
+      if (openaiVisionModel) body.openai_vision_model = openaiVisionModel;
+      if (geminiChatModel) body.gemini_chat_model = geminiChatModel;
+      if (geminiVisionModel) body.gemini_vision_model = geminiVisionModel;
+      if (claudeChatModel) body.anthropic_chat_model = claudeChatModel;
+      if (claudeVisionModel) body.anthropic_vision_model = claudeVisionModel;
       const res = await fetch("/api/settings/llm", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -207,6 +235,8 @@ export default function SettingsPage() {
                   {showOpenai ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
+              <ModelPicker provider="openai" capabilityLabel="Chat" hasKey={data?.hasOpenaiKey ?? false} value={effOpenaiChat} onChange={setOpenaiChatModel} />
+              <ModelPicker provider="openai" capabilityLabel="Vision" hasKey={data?.hasOpenaiKey ?? false} value={effOpenaiVision} onChange={setOpenaiVisionModel} />
             </div>
           )}
 
@@ -231,6 +261,8 @@ export default function SettingsPage() {
                   {showGemini ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
+              <ModelPicker provider="gemini" capabilityLabel="Chat" hasKey={data?.hasGeminiKey ?? false} value={effGeminiChat} onChange={setGeminiChatModel} />
+              <ModelPicker provider="gemini" capabilityLabel="Vision" hasKey={data?.hasGeminiKey ?? false} value={effGeminiVision} onChange={setGeminiVisionModel} />
             </div>
           )}
 
@@ -255,6 +287,8 @@ export default function SettingsPage() {
                   {showClaude ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
+              <ModelPicker provider="claude" capabilityLabel="Chat" hasKey={data?.hasClaudeKey ?? false} value={effClaudeChat} onChange={setClaudeChatModel} />
+              <ModelPicker provider="claude" capabilityLabel="Vision" hasKey={data?.hasClaudeKey ?? false} value={effClaudeVision} onChange={setClaudeVisionModel} />
             </div>
           )}
         </div>
@@ -297,6 +331,79 @@ export default function SettingsPage() {
         <Save size={15} />
         {mutation.isPending ? "Saving…" : "Save Settings"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * A per-capability model dropdown backed by the provider's live model-list
+ * endpoint — this is what keeps model selection from silently going stale as
+ * providers deprecate old IDs and ship new ones. Falls back to a static list
+ * (server-side) when the live fetch fails, and always keeps the currently
+ * selected id selectable even if it's since fallen out of either list.
+ */
+function ModelPicker({
+  provider,
+  capabilityLabel,
+  hasKey,
+  value,
+  onChange,
+}: {
+  provider: CatalogProvider;
+  capabilityLabel: string;
+  hasKey: boolean;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const { data, isFetching, refetch } = useQuery<ModelCatalogResponse>({
+    queryKey: ["model-catalog", provider],
+    queryFn: async () => {
+      const res = await fetch(`/api/settings/models?provider=${provider}`);
+      if (!res.ok) throw new Error(`Failed to load models: ${res.status}`);
+      return res.json();
+    },
+    enabled: hasKey,
+    staleTime: 5 * 60 * 1000, // re-checks for new/retired models every 5 min, not on every render
+  });
+
+  if (!hasKey) {
+    return (
+      <p className="mt-1.5 text-xs text-[var(--color-muted)]">
+        Save the API key above, then come back here to pick a specific {capabilityLabel} model.
+      </p>
+    );
+  }
+
+  const fetched = data?.models ?? [];
+  const options = value && !fetched.some((m) => m.id === value) ? [{ id: value }, ...fetched] : fetched;
+
+  return (
+    <div className="mt-2">
+      <label className="mb-1 block text-xs font-medium text-[var(--color-muted)]">{capabilityLabel} model</label>
+      <div className="flex items-center gap-2">
+        <select value={value} onChange={(e) => onChange(e.target.value)} className="input-base flex-1 text-sm">
+          {options.length === 0 && <option value="">{isFetching ? "Loading…" : "No models found"}</option>}
+          {options.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label ? `${m.label} (${m.id})` : m.id}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          title="Refresh the model list from the provider"
+          className="shrink-0 rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-muted)] hover:text-[var(--color-brand)] disabled:opacity-50"
+        >
+          <RefreshCw size={14} className={isFetching ? "animate-spin" : ""} />
+        </button>
+      </div>
+      {data && (
+        <p className="mt-1 text-[11px] text-[var(--color-muted)]">
+          {data.live ? "Live list fetched from the provider just now." : `Showing a saved fallback list${data.error ? ` — ${data.error}` : ""}.`}
+        </p>
+      )}
     </div>
   );
 }
