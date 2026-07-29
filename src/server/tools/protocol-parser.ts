@@ -18,7 +18,7 @@ title (<=8 words), instructions (list of single-action strings), reagents (list 
 science_explanation (1-2 sentences), expected_observation (string),
 vision_check_required (bool), vision_expected ({type, expected_value, tolerance}|null).
 
-vision_expected.type must be one of: "burette_reading", "colour_change", "gel_band".
+vision_expected.type must be one of: "burette_reading", "colour_change", "gel_band", "absorbance".
 Set vision_check_required true only for steps with an observable, photographable state.
 Respond ONLY with valid JSON: { "experiment_name": "...", "steps": [...] }.`;
 

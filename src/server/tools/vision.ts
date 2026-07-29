@@ -106,6 +106,28 @@ Return JSON:
 }`;
   }
 
+  if (expected.type === "absorbance") {
+    return `${baseCtx}
+This photograph shows a spectrophotometer's digital display after a sample reading.
+
+Method:
+1. Locate the absorbance value on the display (may be labeled "A" or "Abs").
+2. Read the full displayed value, including all decimal places shown.
+3. Judge image quality independently of the reading.
+
+Return JSON:
+{
+  "reading": <number — the displayed absorbance in AU, or null if you cannot read the display>,
+  "graduation_above": null,
+  "graduation_below": null,
+  "meniscus_visible": <true|false — is the display actually visible and unobstructed>,
+  "scale_legible": <true|false — are the digits sharp enough to read>,
+  "confidence": <0.0–1.0>,
+  "message": "<one sentence: what you see and the value you read>",
+  "notes": "<if quality is poor, the specific problem — glare on the screen, blur, wrong display mode>"
+}`;
+  }
+
   if (expected.type === "colour_change") {
     // Colour needs a target to judge against, but the OBSERVATION is still
     // reported blind first so the server can check the verdict against it.
@@ -143,9 +165,9 @@ Return JSON:
 function experimentLabel(experimentId?: string): string {
   const map: Record<string, string> = {
     "acid-base-titration": "Acid-Base Titration (HCl vs NaOH with phenolphthalein indicator)",
-    "dna-gel-electrophoresis": "DNA Gel Electrophoresis",
+    "gel-electrophoresis": "DNA Gel Electrophoresis",
     "iodine-clock": "Iodine Clock Reaction",
-    "aur": "Aspirin Synthesis / Unknown Reaction",
+    "aur-experiment": "AUR — Absorbance Using a Reference (spectrophotometry)",
   };
   return (experimentId && map[experimentId]) ?? (experimentId ?? "General Lab Experiment");
 }
@@ -249,10 +271,10 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
     return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(true, confidence) };
   }
 
-  const UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", colour_change: "" };
+  const UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", colour_change: "", absorbance: "AU" };
   const unit = UNIT[expected.type] ?? "";
   const ev = expected.expected_value ?? 0;
-  const tol = expected.tolerance || (expected.type === "gel_band" ? 150 : 0.1);
+  const tol = expected.tolerance || (expected.type === "gel_band" ? 150 : expected.type === "absorbance" ? 0.02 : 0.1);
   const jitter = (((h % 11) - 5) / 10) * tol;
   const reading = round2(ev + jitter);
   const deviation = round2(reading - ev);
@@ -298,7 +320,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
   }
 
   const prompt = buildUserPrompt(req);
-  const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : 0.1);
+  const tol = req.expected.tolerance ?? (req.expected.type === "gel_band" ? 150 : req.expected.type === "absorbance" ? 0.02 : 0.1);
   const t0 = Date.now();
 
   // ── Stage 1: pre-flight quality gate ─────────────────────────────────

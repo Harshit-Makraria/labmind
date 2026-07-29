@@ -76,6 +76,7 @@ model LabSession {
   lastVisionPass   Boolean?
   deviationPercent Float?
   safetyAlertCount Int                 @default(0)
+  duplicatePhotoCount Int              @default(0)
   steps            Json                @default("[]")
   safetyLog        Json                @default("[]")
   notes            Json                @default("[]")

@@ -124,7 +124,7 @@ async function runDemo(req: AgentChatRequest, ctx: ToolContext, emit: Emit, used
     intent = "safety"; calls.push({ tool: "check_safety", args: { reagents } });
   } else if (reagents.length === 1 && /(safe|hazard|about|handle|store|danger)/.test(msg)) {
     intent = "reagent"; calls.push({ tool: "lookup_reagent", args: { reagent: reagents[0] } });
-  } else if (/(concentration|molarity|titre|calculate.*conc|c\(hcl\))/.test(msg)) {
+  } else if (/(concentration|molarity|titre|calculate.*conc|c\(hcl\))/.test(msg) && exp.id === "acid-base-titration") {
     intent = "titration"; calls.push({ tool: "titration_concentration", args: { titre_volume_ml: nums[0] ?? 24.5 } });
   } else if (/(rate|1\/t|per second|clock)/.test(msg) && exp.domain === "kinetics") {
     intent = "rate"; calls.push({ tool: "reaction_rate", args: { time_seconds: nums[0] ?? 40 } });

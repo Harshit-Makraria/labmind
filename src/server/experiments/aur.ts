@@ -48,7 +48,7 @@ export const AUR: Experiment = {
         science_explanation: "Absorbance relates to concentration via Beer-Lambert law.",
         expected_observation: "absorbance reading",
         vision_check_required: true,
-        vision_expected: null,
+        vision_expected: { type: "absorbance", expected_value: 0.1, tolerance: 0.02 },
       },
     ],
   },

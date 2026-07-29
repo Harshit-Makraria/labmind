@@ -106,15 +106,19 @@ export async function buildReport(sessionId: string): Promise<LabReport> {
     date,
     aim: s?.experimentId === "acid-base-titration"
       ? "To determine the concentration of HCl by titration against standard NaOH."
-      : s?.experimentId === "dna-gel-electrophoresis"
+      : s?.experimentId === "gel-electrophoresis"
       ? "To estimate the size of an unknown DNA fragment by gel electrophoresis."
       : s?.experimentId === "iodine-clock"
       ? "To measure the rate of the iodine clock reaction at room temperature."
+      : s?.experimentId === "aur-experiment"
+      ? "To measure the absorbance of a sample against a reference blank and relate it to concentration via the Beer-Lambert law."
       : `To complete the assigned experiment: ${s?.experimentName ?? "Lab Experiment"}.`,
     apparatus: s?.experimentId === "acid-base-titration"
       ? ["50 mL burette", "25 mL pipette", "Conical flask (250 mL)", "White tile", "Phenolphthalein indicator", "Retort stand and clamp"]
       : s?.experimentId === "gel-electrophoresis"
       ? ["Agarose gel (1%)", "TAE buffer", "Gel electrophoresis tank", "Power supply (100 V)", "DNA ladder", "Loading dye", "SYBR Safe stain"]
+      : s?.experimentId === "aur-experiment"
+      ? ["Spectrophotometer", "Cuvettes (matched pair)", "Reference blank solution", "Sample solution", "Lint-free tissue"]
       : ["Stopwatch", "250 mL beaker", "Measuring cylinders (10 mL, 50 mL)", "Solution A (KIO3)", "Solution B (Na2S2O3 + starch)"],
     procedure: (s?.steps ?? []).slice(0, 6).map((st) => `Step ${st.step_number}`),
     observations,
@@ -122,6 +126,8 @@ export async function buildReport(sessionId: string): Promise<LabReport> {
       ? "C(HCl) = (M(NaOH) × V(titre)) / V(analyte) = (0.1 × titre_mL) / 25"
       : s?.experimentId === "iodine-clock"
       ? "Rate = 1/t (s⁻¹)"
+      : s?.experimentId === "aur-experiment"
+      ? "Beer-Lambert law: A = ε·c·l — absorbance is directly proportional to concentration."
       : "Size estimated by interpolation against ladder bands",
     result: s?.deviationPercent !== null
       ? `Result obtained with ${s!.deviationPercent}% deviation from expected value (${summary.accuracy_score}% accuracy).`

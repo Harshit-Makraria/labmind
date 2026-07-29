@@ -50,9 +50,10 @@ export function assessRisk(input: {
   deviationPercent: number | null;
   prelabPassed: boolean | null;
   pacingFlagged: number;
+  duplicatePhotoCount?: number;
 }): RiskAssessment {
   const factors: RiskFactor[] = [];
-  const { steps, safetyAlertCount, deviationPercent, prelabPassed, pacingFlagged } = input;
+  const { steps, safetyAlertCount, deviationPercent, prelabPassed, pacingFlagged, duplicatePhotoCount = 0 } = input;
 
   if (safetyAlertCount > 0) {
     factors.push({
@@ -90,6 +91,18 @@ export function assessRisk(input: {
     factors.push({ code: "pacing", label: `${pacingFlagged} step${pacingFlagged === 1 ? "" : "s"} completed implausibly fast`, weight: Math.min(30, pacingFlagged * 12) });
   }
 
+  // The strongest single cheating signal the system can catch — a photo that
+  // exactly matches one already submitted (by this student for another step,
+  // or by a different student in the same cohort) — previously produced no
+  // lasting evidence at all, just a console.warn.
+  if (duplicatePhotoCount > 0) {
+    factors.push({
+      code: "duplicate_photo",
+      label: `${duplicatePhotoCount} duplicate photo${duplicatePhotoCount === 1 ? "" : "s"} caught (image reused across steps or students)`,
+      weight: Math.min(40, duplicatePhotoCount * 25),
+    });
+  }
+
   if (prelabPassed === false) {
     factors.push({ code: "prelab_failed", label: "Failed the pre-lab readiness quiz", weight: 15 });
   }
@@ -106,14 +119,24 @@ export function assessRisk(input: {
   }
 
   const raw = factors.reduce((sum, f) => sum + f.weight, 0);
+  // Clamped to 0+ for display/banding — a risk score is never "negative risk".
   const score = Math.max(0, Math.min(100, raw));
 
   const band: RiskAssessment["band"] =
     score >= 60 ? "high" : score >= 35 ? "elevated" : score >= 15 ? "moderate" : "low";
 
   // Map score onto the confidence bar this student must clear to auto-verify.
+  //
+  // `clean_run` is the only factor with negative weight, and it only ever
+  // appears alone (it requires factors.length === 0 before it's added), so
+  // `raw` is either exactly that bonus or a non-negative sum of risk factors.
+  // Using the CLAMPED `score` here would silently erase the bonus: a brand
+  // new session with zero data and a session that just earned a clean-run
+  // bonus both clamp to score=0 and land on the identical threshold, so the
+  // "actively lower friction" promise above never manifests. Using `raw`
+  // directly lets a genuine clean run dip below the standard floor.
   const span = THRESHOLD_CEILING - THRESHOLD_FLOOR;
-  const threshold = Math.round((THRESHOLD_FLOOR + (score / 100) * span) * 100) / 100;
+  const threshold = Math.round((THRESHOLD_FLOOR + (raw / 100) * span) * 100) / 100;
 
   const recommendation =
     band === "high"

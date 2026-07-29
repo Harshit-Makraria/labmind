@@ -41,8 +41,19 @@ const GEL_BAND: InstrumentSpec = {
   concordance: 200,
 };
 
+const SPECTROPHOTOMETER: InstrumentSpec = {
+  granularity: 0.001,
+  // Beer-Lambert linearity breaks down above ~2 AU on a typical classroom
+  // spectrophotometer; a reading outside 0-2 means the sample needs dilution
+  // or the instrument wasn't blanked, either way not a real absorbance value.
+  min: 0,
+  max: 2,
+  unit: "AU",
+};
+
 export function instrumentFor(type: VisionCheckType): InstrumentSpec | null {
   if (type === "burette_reading") return BURETTE_50ML;
   if (type === "gel_band") return GEL_BAND;
+  if (type === "absorbance") return SPECTROPHOTOMETER;
   return null; // colour_change has no numeric scale
 }

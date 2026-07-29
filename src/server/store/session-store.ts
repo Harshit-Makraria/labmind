@@ -30,6 +30,7 @@ export interface StoredSession {
   lastVisionPass: boolean | null;
   deviationPercent: number | null;
   safetyAlertCount: number;
+  duplicatePhotoCount: number;
   steps: StepRecord[];
   safetyLog: SafetyLogEntry[];
   notes: string[];
@@ -76,6 +77,7 @@ function buildPersistPayload(s: StoredSession) {
     lastVisionPass: s.lastVisionPass,
     deviationPercent: s.deviationPercent,
     safetyAlertCount: s.safetyAlertCount,
+    duplicatePhotoCount: s.duplicatePhotoCount,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     steps: s.steps as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,6 +121,7 @@ export async function hydrateSession(id: string): Promise<StoredSession | undefi
       lastVisionPass: row.lastVisionPass,
       deviationPercent: row.deviationPercent,
       safetyAlertCount: row.safetyAlertCount,
+      duplicatePhotoCount: row.duplicatePhotoCount,
       steps: (row.steps as unknown as StepRecord[]) ?? [],
       safetyLog: (row.safetyLog as unknown as SafetyLogEntry[]) ?? [],
       notes: (row.notes as unknown as string[]) ?? [],
@@ -154,6 +157,7 @@ export function upsertSession(input: {
     lastVisionPass: null,
     deviationPercent: null,
     safetyAlertCount: 0,
+    duplicatePhotoCount: 0,
     steps,
     safetyLog: [],
     notes: [],
@@ -266,6 +270,20 @@ export function recordSafetyAlert(id: string, stepNumber: number, alerts: Safety
     s.safetyAlertCount += 1;
     s.status = "safety_alert";
     s.safetyLog.push({ step_number: stepNumber, alerts, at: new Date().toISOString() });
+  });
+}
+
+/**
+ * Record a caught duplicate-photo submission (same image resubmitted for a
+ * different step, or matching a photo submitted by another student in the
+ * same cohort). Previously a clash was only console.warn'd and traced —
+ * invisible to the instructor and to the risk engine. This makes it a
+ * durable, instructor-visible signal like a safety alert.
+ */
+export function recordDuplicatePhoto(id: string, stepNumber: number, note: string) {
+  return mutate(id, (s) => {
+    s.duplicatePhotoCount += 1;
+    s.notes.push(`Duplicate photo detected on step ${stepNumber}: ${note}`);
   });
 }
 

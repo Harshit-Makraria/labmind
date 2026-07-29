@@ -5,7 +5,7 @@
 
 // ─── Protocol & experiments ─────────────────────────────────────────
 
-export type VisionCheckType = "burette_reading" | "colour_change" | "gel_band";
+export type VisionCheckType = "burette_reading" | "colour_change" | "gel_band" | "absorbance";
 
 export interface Reagent {
   name: string;

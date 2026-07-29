@@ -517,7 +517,11 @@ async function anthropicTools(
       tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })),
     }),
   });
-  if (!res.ok) throw new Error(`Anthropic tools error ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const body = await res.text();
+    if (isQuotaError(res.status, body)) throw new Error(`QUOTA:${res.status}: ${body}`);
+    throw new Error(`Anthropic tools error ${res.status}: ${body}`);
+  }
   const data = (await res.json()) as {
     content: { type: string; text?: string; name?: string; input?: Record<string, unknown> }[];
   };

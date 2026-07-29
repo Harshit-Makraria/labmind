@@ -30,7 +30,7 @@ import {
   addInstructorNote, addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
   getAgentDecisionsFromDB, getSessionDetailFromDB,
   getTracesFromDB, hydrateSession, logAgentDecision, manualOverride,
-  recordResult, recordSafetyAlert, recordVision, setCurrentStep, setStudentName,
+  recordDuplicatePhoto, recordResult, recordSafetyAlert, recordVision, setCurrentStep, setStudentName,
   skipStep, upsertSession,
 } from "@/server/store/session-store";
 import { db } from "@/server/db";
@@ -216,25 +216,48 @@ app.post("/vision/check", async (c) => {
   // attempt counter never increments past 1 and manual override never unlocks.
   const priorSession = body.session_id ? await hydrateSession(body.session_id) : undefined;
 
+  // Fetched once, up front, so both the duplicate guard (needs instructorCode
+  // to scope across the cohort) and the risk assessment below (needs
+  // createdAt for pacing) share the same row instead of querying twice.
+  let labRow: { instructorCode: string | null; studentName: string; prelabPassed: boolean | null; createdAt: Date } | null = null;
+  if (body.session_id) {
+    labRow = await db.labSession.findUnique({
+      where: { id: body.session_id },
+      select: { instructorCode: true, studentName: true, prelabPassed: true, createdAt: true },
+    });
+  }
+
   // ── Duplicate-image guard ──────────────────────────────────────────
   // Nothing previously stopped the same photo being submitted for a different
   // step, or two students submitting the same apparatus. Both yield a valid
-  // reading and pass every downstream check.
+  // reading and pass every downstream check. Scoped across every session in
+  // the SAME cohort (instructorCode), not just this student's own session —
+  // a single-session scope could never catch the more realistic cheating
+  // mode of two students photographing the same physical setup.
   const fp = await fingerprint(body.image_base64);
   if (fp && body.session_id) {
     const priorImages = await db.verificationEntry.findMany({
-      where: { sessionId: body.session_id, NOT: { imageHash: null } },
-      select: { imageHash: true, stepNumber: true },
+      where: labRow?.instructorCode
+        ? { session: { instructorCode: labRow.instructorCode }, NOT: { imageHash: null } }
+        : { sessionId: body.session_id, NOT: { imageHash: null } },
+      select: { imageHash: true, stepNumber: true, sessionId: true, studentName: true },
     });
     const clash = priorImages.find(
-      (p) => p.stepNumber !== body.step_number && p.imageHash && isDuplicate(fp, p.imageHash),
+      (p) => !(p.sessionId === body.session_id && p.stepNumber === body.step_number) && p.imageHash && isDuplicate(fp, p.imageHash),
     );
     if (clash) {
-      console.warn(`[DUPLICATE] session=${body.session_id} step=${body.step_number} matches step ${clash.stepNumber} (hash ${fp})`);
-      recordTrace("vision_tool", `step ${body.step_number} duplicate`, `matches step ${clash.stepNumber}`, Date.now() - t0, 0);
+      const sameStudent = clash.sessionId === body.session_id;
+      const note = sameStudent
+        ? `matches this student's own step ${clash.stepNumber}`
+        : `matches a photo submitted by ${clash.studentName} for step ${clash.stepNumber}`;
+      console.warn(`[DUPLICATE] session=${body.session_id} step=${body.step_number} ${note} (hash ${fp})`);
+      recordDuplicatePhoto(body.session_id, body.step_number, note);
+      recordTrace("vision_tool", `step ${body.step_number} duplicate`, note, Date.now() - t0, 0);
       return c.json({
         reading: null, confidence: 0, pass: false, deviation: null,
-        message: `This is the same photo you already submitted for step ${clash.stepNumber}.`,
+        message: sameStudent
+          ? `This is the same photo you already submitted for step ${clash.stepNumber}.`
+          : `This photo matches one already submitted by another student for step ${clash.stepNumber}.`,
         notes: "Take a new photo of the current state of your apparatus.",
         attempts: 1, manual_override_available: false,
         verification_threshold: VISION_HIGH_CONFIDENCE,
@@ -261,31 +284,27 @@ app.post("/vision/check", async (c) => {
   // compared against the fixed 0.82 constant regardless of who submitted.
   // That meant "adaptive thresholds" never actually changed what happened
   // when a student submitted a photo. It now does.
-  let labRow: { instructorCode: string | null; studentName: string; prelabPassed: boolean | null } | null = null;
   let threshold = VISION_HIGH_CONFIDENCE;
-  if (body.session_id) {
-    labRow = await db.labSession.findUnique({
-      where: { id: body.session_id },
-      select: { instructorCode: true, studentName: true, prelabPassed: true },
+  if (body.session_id && labRow) {
+    // Pacing needs the protocol + session start time, both one query away —
+    // compute it for real here instead of passing 0, so the exact submission
+    // that trips an impossibly-fast step is graded with that fact already
+    // incorporated, not just on the instructor's next risk-page poll.
+    const exp = getExperiment(priorSession?.experimentId);
+    const pacing = analysePacing(priorSession?.steps ?? [], exp.protocol, labRow.createdAt);
+    const risk = assessRisk({
+      sessionId: body.session_id,
+      studentName: labRow.studentName,
+      steps: priorSession?.steps ?? [],
+      safetyAlertCount: priorSession?.safetyAlertCount ?? 0,
+      deviationPercent: priorSession?.deviationPercent ?? null,
+      prelabPassed: labRow.prelabPassed,
+      pacingFlagged: pacing.flagged_count,
+      duplicatePhotoCount: priorSession?.duplicatePhotoCount ?? 0,
     });
-    if (labRow) {
-      const risk = assessRisk({
-        sessionId: body.session_id,
-        studentName: labRow.studentName,
-        steps: priorSession?.steps ?? [],
-        safetyAlertCount: priorSession?.safetyAlertCount ?? 0,
-        deviationPercent: priorSession?.deviationPercent ?? null,
-        prelabPassed: labRow.prelabPassed,
-        // Pacing isn't recomputed on this hot path (it needs the protocol +
-        // session start time) — the risk ranking page already reflects it in
-        // full; the routing decision here still incorporates every other
-        // factor (alerts, overrides, skips, retries, pre-lab).
-        pacingFlagged: 0,
-      });
-      threshold = risk.verification_threshold;
-      if (threshold !== VISION_HIGH_CONFIDENCE) {
-        console.log(`[ROUTE /vision/check]   adaptive threshold: ${threshold} (risk score ${risk.score}/${risk.band}) — was ${VISION_HIGH_CONFIDENCE}`);
-      }
+    threshold = risk.verification_threshold;
+    if (threshold !== VISION_HIGH_CONFIDENCE) {
+      console.log(`[ROUTE /vision/check]   adaptive threshold: ${threshold} (risk score ${risk.score}/${risk.band}) — was ${VISION_HIGH_CONFIDENCE}`);
     }
   }
   result.verification_threshold = threshold;
@@ -828,6 +847,7 @@ app.get("/instructor/sessions/:code/risk", async (c) => {
           deviationPercent: row.deviationPercent,
           prelabPassed: row.prelabPassed,
           pacingFlagged: pacing.flagged_count,
+          duplicatePhotoCount: row.duplicatePhotoCount,
         }),
         pacing_verdict: pacing.verdict,
         integrity_score: pacing.integrity_score,
