@@ -5,7 +5,7 @@
 
 ---
 
-## ✅ CURRENT STATE (supersedes the roadmap below — last verified 2026-07-29)
+## ✅ CURRENT STATE (supersedes the roadmap below — last verified 2026-07-30)
 
 **The project is a single root-level Next.js app**, deployed on Vercel, backed by a real
 Postgres database. The original Python/FastAPI + monorepo plan further down this file, and the
@@ -16,8 +16,12 @@ brief "in-memory store" phase that followed it, are both historical context only
 - **Real persistence, not a demo store.** Prisma + Postgres (Supabase). Sessions, verification
   queues, agent-decision traces, and the tamper-evident audit log all survive restarts and
   serverless cold starts — see `prisma/schema.prisma`.
-- **Real auth.** NextAuth v5 (credentials + Prisma adapter) — signup/login, not just an
-  instructor passcode (the passcode still exists as a legacy fallback).
+- **Real auth, with real authorization.** NextAuth v5 (credentials + Prisma adapter) —
+  signup/login, not just an instructor passcode. Becoming an instructor requires that
+  passcode server-side at signup (it's no longer a self-service role checkbox), and every
+  instructor/student route is scoped to data that account actually owns (`createdByUserId`
+  on `InstructorSession`, `userId` on `LabSession`) — one instructor can't browse another's
+  cohort, one student can't read/tamper with another's session by guessing an ID.
 - **4 experiments, not 1**: acid-base titration (flagship), DNA gel electrophoresis, iodine
   clock reaction, and AUR (absorbance using a reference) — each with its own vision-check type,
   reagent safety data, result-interpretation copy, and demo pre-lab quiz.

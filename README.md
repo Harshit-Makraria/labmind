@@ -73,6 +73,13 @@ This is the part a technical judge will probe, so it's built to hold up:
    grading), and chains a second tool call from the first one's actual output (e.g. a
    high-severity safety conflict automatically escalates to the instructor console). This
    works identically in demo mode, which is the mode most likely running live for a judge.
+10. **Real multi-tenant authorization, not just a login screen.** Instructor is not a
+    self-service checkbox — becoming one requires the institution's passcode, checked
+    server-side at signup. Every instructor route (class roster, CSV export, risk ranking,
+    verification queue) is scoped to classes that instructor actually created, and every
+    student route is scoped to that student's own session — one instructor account cannot
+    browse another's cohort, and one student cannot read or tamper with another's grading
+    data by guessing an ID.
 
 ## Demo mode (no API key needed)
 
