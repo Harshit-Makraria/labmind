@@ -9,7 +9,7 @@ import {
 import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DemoBanner } from "@/components/DemoBanner";
 
 type Role = "instructor" | "student" | null;
@@ -72,17 +72,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
   const isDemo = meta?.demo || meta?.keys_exhausted;
 
-  // Redirect to login if not authenticated
-  if (status === "loading") {
+  // Redirect to login if not authenticated. Done in an effect, not directly in
+  // the render body — calling router.replace() while AppShell itself is still
+  // rendering updates the router's own state mid-render, which is what threw
+  // "Cannot update a component while rendering a different component" on every
+  // page load.
+  useEffect(() => {
+    if (status === "unauthenticated") router.replace("/auth");
+  }, [status, router]);
+
+  if (status === "loading" || status === "unauthenticated") {
     return (
       <div className="flex min-h-dvh items-center justify-center">
         <Loader2 size={32} className="animate-spin text-[var(--color-brand)]" />
       </div>
     );
-  }
-  if (status === "unauthenticated") {
-    router.replace("/auth");
-    return null;
   }
 
   const role = (session?.user?.role ?? "student") as Role;
