@@ -16,7 +16,7 @@
  */
 import "server-only";
 import type { VisionCheckRequest } from "@/lib/types";
-import { getConfig } from "@/server/config";
+import { getConfig, resolveWaterfallOrder } from "@/server/config";
 import { isExhausted } from "@/server/llm/provider-state";
 import type { VisionProvider } from "@/server/llm/provider";
 import { runImageCheck, type ImageCheckObservation } from "@/server/tools/vision-check-flow";
@@ -82,16 +82,21 @@ function confidenceFromSpread(spread: number, tolerance: number): number {
 
 /**
  * Providers to sample from, best-first, skipping any that are exhausted.
- * Gemini leads for vision by default (matches provider.ts's autoCompleteVision
- * waterfall) — Claude is still sampled when configured, just not prioritized
- * first unless it's the only key set up.
+ * Shares the exact same order as provider.ts's autoCompleteVision waterfall
+ * (Gemini-led by default, or whichever provider is pinned in Settings) so the
+ * ensemble's "first" sample is always the same engine the single-call vision
+ * path would have used.
  */
 function availableProviders(): VisionProvider[] {
   const c = getConfig();
+  const order = resolveWaterfallOrder("vision", c.visionProvider);
   const out: VisionProvider[] = [];
-  if (c.geminiApiKey && !isExhausted("gemini")) out.push("gemini");
-  if (c.openaiApiKey && !isExhausted("openai")) out.push("openai");
-  if (c.anthropicApiKey && !isExhausted("anthropic")) out.push("claude");
+  for (const p of order) {
+    if (p === "auto") continue;
+    if (p === "gemini" && c.geminiApiKey && !isExhausted("gemini")) out.push("gemini");
+    if (p === "openai" && c.openaiApiKey && !isExhausted("openai")) out.push("openai");
+    if (p === "claude" && c.anthropicApiKey && !isExhausted("anthropic")) out.push("claude");
+  }
   return out;
 }
 

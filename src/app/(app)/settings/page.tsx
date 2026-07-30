@@ -9,8 +9,14 @@ import { ErrorState } from "@/components/ui/data-states";
 type Provider = "auto" | "claude" | "openai" | "gemini" | "demo";
 type CatalogProvider = "openai" | "gemini" | "claude";
 
+type CapabilityProviderChoice = "auto" | CatalogProvider;
+
 interface LlmStatus {
   provider: Provider;
+  chatProvider: CapabilityProviderChoice;
+  visionProvider: CapabilityProviderChoice;
+  resolved_chat_provider: CatalogProvider;
+  resolved_vision_provider: CatalogProvider;
   hasClaudeKey: boolean;
   hasOpenaiKey: boolean;
   hasGeminiKey: boolean;
@@ -18,6 +24,8 @@ interface LlmStatus {
   exhausted_providers: Record<string, string>;
   models: Record<CatalogProvider, { chat: string; vision: string }>;
 }
+
+const PROVIDER_CHOICE_LABEL: Record<CatalogProvider, string> = { openai: "OpenAI", gemini: "Gemini", claude: "Claude" };
 
 interface ModelCatalogResponse {
   models: { id: string; label?: string }[];
@@ -29,7 +37,7 @@ const PROVIDERS: { value: Provider; label: string; description: string }[] = [
   {
     value: "auto",
     label: "Auto (Recommended)",
-    description: "Chat uses OpenAI (falls back to Gemini, then Claude). Photo verification uses Gemini (falls back to OpenAI, then Claude). Falls back to demo if nothing is configured.",
+    description: "Chat defaults to OpenAI, photo verification to Gemini — each falls back through the others, then demo. Override either independently below (e.g. Claude for chat + OpenAI for vision).",
   },
   {
     value: "openai",
@@ -80,7 +88,14 @@ export default function SettingsPage() {
   const [claudeChatModel, setClaudeChatModel] = useState<string | null>(null);
   const [claudeVisionModel, setClaudeVisionModel] = useState<string | null>(null);
 
+  // Per-capability provider pins — only meaningful while the top-level mode
+  // is "auto"; a single-provider mode ("OpenAI only" etc.) forces both anyway.
+  const [chatProviderPin, setChatProviderPin] = useState<CapabilityProviderChoice | null>(null);
+  const [visionProviderPin, setVisionProviderPin] = useState<CapabilityProviderChoice | null>(null);
+
   const effectiveProvider = provider ?? data?.provider ?? "auto";
+  const effChatProviderPin = chatProviderPin ?? data?.chatProvider ?? "auto";
+  const effVisionProviderPin = visionProviderPin ?? data?.visionProvider ?? "auto";
   const effOpenaiChat = openaiChatModel ?? data?.models?.openai?.chat ?? "";
   const effOpenaiVision = openaiVisionModel ?? data?.models?.openai?.vision ?? "";
   const effGeminiChat = geminiChatModel ?? data?.models?.gemini?.chat ?? "";
@@ -91,6 +106,8 @@ export default function SettingsPage() {
   const mutation = useMutation({
     mutationFn: async () => {
       const body: Record<string, string> = { provider: effectiveProvider };
+      if (chatProviderPin) body.chat_provider = chatProviderPin;
+      if (visionProviderPin) body.vision_provider = visionProviderPin;
       if (claudeKey) body.anthropic_key = claudeKey;
       if (openaiKey) body.openai_key = openaiKey;
       if (geminiKey) body.gemini_key = geminiKey;
@@ -203,6 +220,51 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* Per-capability provider override — only meaningful under Auto */}
+      {effectiveProvider === "auto" && (
+        <div className="card space-y-3">
+          <h3 className="font-semibold text-[var(--color-navy)] flex items-center gap-2">
+            <Bot size={16} /> Chat &amp; Vision Providers
+          </h3>
+          <p className="text-xs text-[var(--color-muted)]">
+            Pin each capability to a specific provider independently — e.g. OpenAI for chat and Gemini for vision (the
+            default), or any other combination like Claude for chat and OpenAI for vision.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">Chat provider</label>
+              <select
+                value={effChatProviderPin}
+                onChange={(e) => setChatProviderPin(e.target.value as CapabilityProviderChoice)}
+                className="input-base w-full"
+              >
+                <option value="auto">
+                  Auto (OpenAI → Gemini → Claude){data ? ` — currently ${PROVIDER_CHOICE_LABEL[data.resolved_chat_provider]}` : ""}
+                </option>
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Gemini</option>
+                <option value="claude">Claude</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-[var(--color-navy)]">Vision provider</label>
+              <select
+                value={effVisionProviderPin}
+                onChange={(e) => setVisionProviderPin(e.target.value as CapabilityProviderChoice)}
+                className="input-base w-full"
+              >
+                <option value="auto">
+                  Auto (Gemini → OpenAI → Claude){data ? ` — currently ${PROVIDER_CHOICE_LABEL[data.resolved_vision_provider]}` : ""}
+                </option>
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Gemini</option>
+                <option value="claude">Claude</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* API keys */}
       {effectiveProvider !== "demo" && (

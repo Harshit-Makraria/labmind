@@ -83,8 +83,10 @@ per-experiment (not just titration content reused everywhere), and the vision he
 still catch a wrong-shaped photo and can still genuinely fail a numeric reading, so the
 retake / needs-review / manual-override flows are demoable without wiring up a key. Set a
 provider key in **Settings** to switch to a real model — `auto` uses OpenAI for chat and Gemini
-for photo verification by default (Claude is available on both, opt in via "Claude only"), or
-pick one provider directly.
+for photo verification by default, pick one provider for everything ("OpenAI only" etc.), or pin
+chat and vision to different providers independently (e.g. Claude for chat + OpenAI for vision) —
+each capability's chosen model is itself picked from that provider's own live model list, so it
+never gets stuck on an ID the provider has since deprecated.
 
 ## Getting started
 

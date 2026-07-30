@@ -3,17 +3,26 @@
  * Provider-agnostic LLM selection.
  * Default: "auto" — chat/text prefers OpenAI then Gemini; vision (photo
  * verification) prefers Gemini then OpenAI. Claude is available on both but
- * only used when explicitly selected in Settings ("Claude only"). Falls back
- * to demo mode if no provider key is configured or all are exhausted.
+ * only used when explicitly selected. Either capability can also be pinned
+ * independently to a specific provider (chatProvider/visionProvider below) —
+ * e.g. Claude for chat + OpenAI for vision, a pairing "auto" alone can't
+ * express. Falls back to demo mode if no provider key is configured or all
+ * are exhausted.
  */
 import "server-only";
 import { getRuntimeSettings } from "@/server/runtime-config";
 import { anyExhausted, isExhausted } from "@/server/llm/provider-state";
 
 export type LlmProvider = "demo" | "auto" | "gemini" | "openai" | "azure" | "claude";
+/** A provider pin for one capability (chat or vision) — "auto" uses that capability's built-in default order. */
+export type CapabilityProvider = "auto" | "openai" | "gemini" | "claude";
 
 export interface LabmindConfig {
   llmProvider: LlmProvider;
+  /** Resolved provider preference for chat/text calls — "auto" uses the OpenAI → Gemini → Claude order. */
+  chatProvider: CapabilityProvider;
+  /** Resolved provider preference for vision calls — "auto" uses the Gemini → OpenAI → Claude order. */
+  visionProvider: CapabilityProvider;
   demoMode: boolean;
   geminiApiKey?: string;
   geminiModel: string;
@@ -34,11 +43,25 @@ export interface LabmindConfig {
   instructorPasscode: string;
 }
 
+/**
+ * A single-provider top-level mode ("openai"/"gemini"/"claude") forces BOTH
+ * capabilities to that provider, overriding any per-capability pin — that's
+ * what "X only" means. Otherwise (top-level "auto") each capability resolves
+ * independently: the per-capability pin if one is set, else "auto".
+ */
+export function resolveCapabilityProvider(top: LlmProvider, override: CapabilityProvider | undefined): CapabilityProvider {
+  if (top === "openai" || top === "gemini" || top === "claude") return top;
+  return override ?? "auto";
+}
+
 export function getConfig(): LabmindConfig {
   const env = process.env;
   const rt = getRuntimeSettings(); // null until first DB load — falls back to env
+  const llmProvider = rt?.provider ?? (env.LLM_PROVIDER as LlmProvider) ?? "auto";
   return {
-    llmProvider: rt?.provider ?? (env.LLM_PROVIDER as LlmProvider) ?? "auto",
+    llmProvider,
+    chatProvider: resolveCapabilityProvider(llmProvider, rt?.chatProvider),
+    visionProvider: resolveCapabilityProvider(llmProvider, rt?.visionProvider),
     demoMode: env.DEMO_MODE === "true",
     geminiApiKey: rt?.geminiKey ?? env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY,
     // Model picked from Settings (backed by the live model-catalog fetch)
@@ -82,17 +105,38 @@ export function effectiveDemo(c: LabmindConfig = getConfig()): boolean {
 }
 
 /**
- * Human-readable label for the active engine (shown in the UI / traces).
- * Reflects the CHAT waterfall order (OpenAI → Gemini → Claude) — vision
- * calls follow a different order (Gemini → OpenAI → Claude), see provider.ts.
+ * Ordered fallback chain for one capability, given its pin. "auto" uses the
+ * built-in default order for that capability; a specific pin tries that
+ * provider first and falls back through the remaining two. Exported so
+ * provider.ts's actual routing and this file's providerLabel() share exactly
+ * one definition of "what order do we try providers in" — they must never
+ * silently drift apart.
+ */
+export function resolveWaterfallOrder(capability: "chat" | "vision", pin: CapabilityProvider): CapabilityProvider[] {
+  const base: CapabilityProvider[] = capability === "chat" ? ["openai", "gemini", "claude"] : ["gemini", "openai", "claude"];
+  if (pin === "auto") return base;
+  return [pin, ...base.filter((p) => p !== pin)];
+}
+
+/** The concrete provider that would actually be called right now for a given waterfall order (skipping missing/exhausted keys). Exported for the Settings API to show e.g. "Auto — currently Gemini" instead of a bare, unresolved "auto". */
+export function firstAvailableProvider(order: CapabilityProvider[], c: LabmindConfig): CapabilityProvider {
+  for (const p of order) {
+    if (p === "openai" && c.openaiApiKey && !isExhausted("openai")) return p;
+    if (p === "gemini" && c.geminiApiKey && !isExhausted("gemini")) return p;
+    if (p === "claude" && c.anthropicApiKey && !isExhausted("anthropic")) return p;
+  }
+  return "claude";
+}
+
+/**
+ * Human-readable label for the active engine(s) (shown in the UI / traces).
+ * Chat and vision can now resolve to different providers (e.g. "Claude for
+ * chat + OpenAI for vision"), so this shows both when they differ.
  */
 export function providerLabel(): string {
   const c = getConfig();
   if (effectiveDemo(c)) return "demo";
-  if (c.llmProvider === "auto") {
-    if (c.openaiApiKey && !isExhausted("openai")) return "openai";
-    if (c.geminiApiKey && !isExhausted("gemini")) return "gemini";
-    return "claude";
-  }
-  return c.llmProvider;
+  const chat = firstAvailableProvider(resolveWaterfallOrder("chat", c.chatProvider), c);
+  const vision = firstAvailableProvider(resolveWaterfallOrder("vision", c.visionProvider), c);
+  return chat === vision ? chat : `${chat} chat / ${vision} vision`;
 }

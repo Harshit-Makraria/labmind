@@ -20,7 +20,7 @@
  * Three capabilities: completeJSON, completeVision, completeWithTools.
  */
 import "server-only";
-import { getConfig, type LabmindConfig } from "@/server/config";
+import { getConfig, resolveWaterfallOrder, type LabmindConfig, type CapabilityProvider } from "@/server/config";
 import { markExhausted, isExhausted } from "@/server/llm/provider-state";
 
 export interface VisionInput {
@@ -147,66 +147,68 @@ export async function completeWithTools(
 // an explicit opt-in from the Settings page ("Claude only") for anyone who
 // wants to switch to it, but "auto" no longer reaches for it first.
 
-async function autoCompleteJSON(c: LabmindConfig, system: string, user: string): Promise<string> {
-  if (c.openaiApiKey && !isExhausted("openai")) {
+type ConcreteProvider = Exclude<CapabilityProvider, "auto">;
+
+function hasKeyFor(p: ConcreteProvider, c: LabmindConfig): boolean {
+  if (p === "openai") return !!c.openaiApiKey;
+  if (p === "gemini") return !!c.geminiApiKey;
+  return !!c.anthropicApiKey;
+}
+
+function exhaustedKeyFor(p: ConcreteProvider): "openai" | "gemini" | "anthropic" {
+  return p === "claude" ? "anthropic" : p;
+}
+
+/**
+ * Walk an ordered provider list (from resolveWaterfallOrder — the SAME
+ * ordering config.ts's providerLabel() reports, so the label never
+ * disagrees with what actually gets called), skipping any provider with no
+ * key or that's already exhausted, and falling through to the next on a
+ * quota error. This is the one place the three capabilities share the
+ * fallback mechanics; only which callback runs for which provider differs.
+ */
+async function tryProvidersInOrder<T>(
+  order: CapabilityProvider[],
+  c: LabmindConfig,
+  callers: Record<ConcreteProvider, () => Promise<T>>,
+): Promise<T> {
+  for (const p of order) {
+    if (p === "auto" || !hasKeyFor(p, c) || isExhausted(exhaustedKeyFor(p))) continue;
     try {
-      return await openaiChat(c, [{ role: "system", content: system }, { role: "user", content: user }]);
+      return await callers[p]();
     } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[LLM] GPT-4o quota hit — falling back to Gemini"); }
-      else throw e;
-    }
-  }
-  if (c.geminiApiKey && !isExhausted("gemini")) {
-    try {
-      return await geminiText(c, system, user);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("gemini"); console.warn("[LLM] Gemini quota hit — falling back to Claude"); }
-      else throw e;
-    }
-  }
-  if (c.anthropicApiKey && !isExhausted("anthropic")) {
-    try {
-      return await anthropicChat(c, system, [{ role: "user", content: user }]);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("anthropic"); }
-      else throw e;
+      if (isQuotaErr(e)) {
+        markExhausted(exhaustedKeyFor(p));
+        console.warn(`[LLM] ${p} quota hit — trying the next configured provider`);
+        continue;
+      }
+      throw e;
     }
   }
   throw new Error("ALL_KEYS_EXHAUSTED");
 }
 
+async function autoCompleteJSON(c: LabmindConfig, system: string, user: string): Promise<string> {
+  return tryProvidersInOrder(resolveWaterfallOrder("chat", c.chatProvider), c, {
+    openai: () => openaiChat(c, [{ role: "system", content: system }, { role: "user", content: user }]),
+    gemini: () => geminiText(c, system, user),
+    claude: () => anthropicChat(c, system, [{ role: "user", content: user }]),
+  });
+}
+
 async function autoCompleteVision(c: LabmindConfig, system: string, input: VisionInput): Promise<string> {
-  if (c.geminiApiKey && !isExhausted("gemini")) {
-    try {
-      return await geminiVision(c, system, input);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("gemini"); console.warn("[VISION] Gemini quota hit — falling back to GPT-4o"); }
-      else throw e;
-    }
-  }
-  if (c.openaiApiKey && !isExhausted("openai")) {
-    try {
-      return await openaiVisionChat(c, system, input);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[VISION] GPT-4o quota hit — falling back to Claude"); }
-      else throw e;
-    }
-  }
-  if (c.anthropicApiKey && !isExhausted("anthropic")) {
-    try {
-      return await anthropicChat(c, system, [{
+  return tryProvidersInOrder(resolveWaterfallOrder("vision", c.visionProvider), c, {
+    gemini: () => geminiVision(c, system, input),
+    openai: () => openaiVisionChat(c, system, input),
+    claude: () =>
+      anthropicChat(c, system, [{
         role: "user",
         content: [
           { type: "text", text: input.prompt },
           { type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.imageBase64 } },
         ],
-      }], undefined, c.anthropicVisionModel);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("anthropic"); }
-      else throw e;
-    }
-  }
-  throw new Error("ALL_KEYS_EXHAUSTED");
+      }], undefined, c.anthropicVisionModel),
+  });
 }
 
 async function autoCompleteWithTools(
@@ -215,31 +217,11 @@ async function autoCompleteWithTools(
   messages: { role: "user" | "assistant" | "tool"; content: string; toolName?: string }[],
   tools: ToolSchema[],
 ): Promise<ToolTurnResult> {
-  if (c.openaiApiKey && !isExhausted("openai")) {
-    try {
-      return await openaiTools(c, system, messages, tools);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("openai"); console.warn("[LLM] GPT-4o quota hit — falling back to Gemini"); }
-      else throw e;
-    }
-  }
-  if (c.geminiApiKey && !isExhausted("gemini")) {
-    try {
-      return await geminiTools(c, system, messages, tools);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("gemini"); console.warn("[LLM] Gemini quota hit — falling back to Claude"); }
-      else throw e;
-    }
-  }
-  if (c.anthropicApiKey && !isExhausted("anthropic")) {
-    try {
-      return await anthropicTools(c, system, messages, tools);
-    } catch (e) {
-      if (isQuotaErr(e)) { markExhausted("anthropic"); }
-      else throw e;
-    }
-  }
-  throw new Error("ALL_KEYS_EXHAUSTED");
+  return tryProvidersInOrder(resolveWaterfallOrder("chat", c.chatProvider), c, {
+    openai: () => openaiTools(c, system, messages, tools),
+    gemini: () => geminiTools(c, system, messages, tools),
+    claude: () => anthropicTools(c, system, messages, tools),
+  });
 }
 
 function isQuotaErr(e: unknown): boolean {

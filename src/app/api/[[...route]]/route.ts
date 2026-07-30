@@ -13,7 +13,7 @@ import { analysePacing } from "@/server/tools/pacing";
 import { assessRisk } from "@/server/tools/risk";
 import { buildChain, verifyChain } from "@/server/tools/audit-chain";
 import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
-import { effectiveDemo, getConfig, providerLabel } from "@/server/config";
+import { effectiveDemo, firstAvailableProvider, getConfig, providerLabel, resolveWaterfallOrder } from "@/server/config";
 import { DEFAULT_EXPERIMENT_ID, getExperiment, listExperiments } from "@/server/experiments";
 import { recordTrace } from "@/server/observability/trace";
 import { runAgentStream } from "@/server/agent/orchestrator";
@@ -136,6 +136,11 @@ app.get("/settings/llm", async (c) => {
     ...status,
     keys_exhausted: keysExhausted,
     exhausted_providers: exhaustedProviders(),
+    // What "Auto" actually resolves to right now, given which keys exist and
+    // aren't exhausted — lets the UI show e.g. "Auto → currently Gemini"
+    // rather than a bare, uninformative "Auto".
+    resolved_chat_provider: firstAvailableProvider(resolveWaterfallOrder("chat", cfg.chatProvider), cfg),
+    resolved_vision_provider: firstAvailableProvider(resolveWaterfallOrder("vision", cfg.visionProvider), cfg),
     // Effective model per provider/capability right now (override if set via
     // Settings, otherwise the env default) — what the picker shows as selected.
     models: {
@@ -148,13 +153,16 @@ app.get("/settings/llm", async (c) => {
 
 app.patch("/settings/llm", async (c) => {
   const body = await c.req.json<{
-    provider?: string; openai_key?: string; gemini_key?: string; anthropic_key?: string;
+    provider?: string; chat_provider?: string; vision_provider?: string;
+    openai_key?: string; gemini_key?: string; anthropic_key?: string;
     openai_chat_model?: string; openai_vision_model?: string;
     gemini_chat_model?: string; gemini_vision_model?: string;
     anthropic_chat_model?: string; anthropic_vision_model?: string;
   }>();
   const updated = await saveRuntimeSettings({
     provider: body.provider as Parameters<typeof saveRuntimeSettings>[0]["provider"],
+    chatProvider: body.chat_provider as Parameters<typeof saveRuntimeSettings>[0]["chatProvider"],
+    visionProvider: body.vision_provider as Parameters<typeof saveRuntimeSettings>[0]["visionProvider"],
     openaiKey: body.openai_key,
     geminiKey: body.gemini_key,
     anthropicKey: body.anthropic_key,
@@ -165,7 +173,7 @@ app.patch("/settings/llm", async (c) => {
     anthropicChatModel: body.anthropic_chat_model,
     anthropicVisionModel: body.anthropic_vision_model,
   });
-  return c.json({ ok: true, provider: updated.provider });
+  return c.json({ ok: true, provider: updated.provider, chat_provider: updated.chatProvider, vision_provider: updated.visionProvider });
 });
 
 // Live model catalog for the Settings picker — fetches from the provider's
