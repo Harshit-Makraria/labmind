@@ -33,4 +33,17 @@ describe("result interpreter (golden dataset)", () => {
     const r = interpret({ ...base, student_result: 1200, theoretical_value: 1500, experiment_id: "gel-electrophoresis" });
     expect(`${r.diagnosis} ${r.improvement} ${r.learning_point}`.toLowerCase()).toMatch(/ladder|gel|fragment|run/);
   });
+
+  it("is experiment-aware: AUR gets its own absorbance/cuvette copy, not titration's burette/NaOH text", () => {
+    const r = interpret({ ...base, unit: "AU", student_result: 0.094, theoretical_value: 0.1, experiment_id: "aur-experiment" });
+    const text = `${r.diagnosis} ${r.improvement} ${r.learning_point}`.toLowerCase();
+    expect(text).toMatch(/cuvette|absorbance|blank|beer-lambert/);
+    expect(text).not.toMatch(/burette|naoh|titre|titration/);
+  });
+
+  it("AUR red severity flags out-of-linear-range concentration, not a burette misread", () => {
+    const r = interpret({ ...base, unit: "AU", student_result: 0.13, theoretical_value: 0.1, experiment_id: "aur-experiment" });
+    expect(r.severity).toBe("red");
+    expect(r.diagnosis.toLowerCase()).toMatch(/wavelength|blank|linear range/);
+  });
 });

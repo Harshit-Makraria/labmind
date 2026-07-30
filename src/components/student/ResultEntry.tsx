@@ -213,13 +213,14 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
 
         <label className="block">
           <span className="text-sm font-semibold text-[var(--color-navy)]">Expected value</span>
+          {/* Read-only: this is the experiment's real target, graded server-side —
+              it's shown for context, not something you can shift to flatter your result. */}
           <input
             type="number"
-            inputMode="decimal"
-            step="any"
             value={theo}
-            onChange={(e) => setTheo(e.target.value)}
-            className="mt-1 min-h-[52px] w-full rounded-[var(--radius-btn)] border border-black/15 px-4 text-lg outline-none focus:border-[var(--color-brand)]"
+            readOnly
+            disabled
+            className="mt-1 min-h-[52px] w-full cursor-not-allowed rounded-[var(--radius-btn)] border border-black/15 bg-black/[0.03] px-4 text-lg text-[var(--color-muted)] outline-none"
           />
           {theoretical && (
             <span className="mt-1 block text-xs text-[var(--color-muted)]">

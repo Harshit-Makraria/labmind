@@ -7,12 +7,17 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { loadSession } from "@/hooks/useSession";
 import { ErrorState } from "@/components/ui/data-states";
+import { api } from "@/lib/api-client";
 import type { HistoryEntry } from "@/lib/types";
 
 export default function StudentDashboard() {
   const { data: authSession } = useSession();
   const name = authSession?.user?.name ?? authSession?.user?.email ?? "Student";
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Pulled from the real catalog rather than hardcoded — it drifted out of
+  // sync with the library page once a 4th experiment (AUR) was added.
+  const { data: experiments } = useQuery({ queryKey: ["experiments"], queryFn: api.experiments, staleTime: 60_000 });
+  const experimentCount = experiments?.length;
 
   useEffect(() => {
     for (const key of Object.keys(sessionStorage)) {
@@ -55,7 +60,11 @@ export default function StudentDashboard() {
             href="/library"
             icon={BookOpen}
             title="Browse Library"
-            desc="Explore the 3 available experiments and start one directly."
+            desc={
+              experimentCount
+                ? `Explore the ${experimentCount} available experiment${experimentCount === 1 ? "" : "s"} and start one directly.`
+                : "Explore the available experiments and start one directly."
+            }
             cta="Browse"
             accent="navy"
           />

@@ -502,13 +502,30 @@ app.post("/results/interpret", async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
   const t0 = Date.now();
-  const result = interpret(body);
+
+  // The "Expected value" field is rendered as an editable input on the client
+  // (ResultEntry.tsx) purely to show the student what's expected — it was
+  // never meant to be authoritative, but the server previously trusted
+  // body.theoretical_value verbatim. That let a student set it equal to their
+  // own measured result and always get a fabricated 0%-deviation "on target"
+  // grade. The real target is a property of the experiment, not of the
+  // request, so derive it server-side and ignore whatever the client sent —
+  // resolving experiment_id from the session's own DB row when available, so
+  // a client can't lie about that either.
+  let experimentId = body.experiment_id;
+  if (body.session_id) {
+    const row = await db.labSession.findUnique({ where: { id: body.session_id }, select: { experimentId: true } });
+    if (row) experimentId = row.experimentId;
+  }
+  const theoreticalValue = getExperiment(experimentId).theoretical.value;
+  const result = interpret({ ...body, experiment_id: experimentId, theoretical_value: theoreticalValue });
+
   // hydrate before the sync mutator, else it no-ops and the final result is lost
   if (body.session_id) {
     await hydrateSession(body.session_id);
     recordResult(body.session_id, result.deviation_percent);
   }
-  recordTrace("result_interpreter", `${body.student_result} ${body.unit} vs ${body.theoretical_value}`, `${result.deviation_percent}% · ${result.severity}`, Date.now() - t0);
+  recordTrace("result_interpreter", `${body.student_result} ${body.unit} vs ${theoreticalValue}`, `${result.deviation_percent}% · ${result.severity}`, Date.now() - t0);
   return c.json(result);
 });
 

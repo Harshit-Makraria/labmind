@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle, Bot, ClipboardList, FlaskConical, Gauge, LayoutDashboard, LayoutGrid, Loader2,
   type LucideIcon, Menu, Microscope, PanelLeft,
-  PanelLeftClose, PlusCircle, Settings, Users,
+  PanelLeftClose, PlusCircle, Settings, Users, X,
 } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 import Link from "next/link";
@@ -63,6 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: session, status } = useSession();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const { data: meta } = useQuery({
     queryKey: ["meta"],
@@ -80,6 +81,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/auth");
   }, [status, router]);
+
+  // Close the mobile nav drawer on navigation — client-side routing doesn't
+  // unmount AppShell, so without this it would stay open over the new page.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
   if (status === "loading" || status === "unauthenticated") {
     return (
@@ -159,7 +166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="main-pane">
-        <Topbar title={titleFor(pathname)} role={role} meta={meta} />
+        <Topbar title={titleFor(pathname)} role={role} meta={meta} onMenu={() => setMobileNavOpen(true)} />
         <DemoBanner />
         {/* Keying on pathname replays the entrance animation on every navigation,
             so moving between pages reads as a deliberate transition rather than
@@ -168,15 +175,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <MobileBottomNav nav={nav} pathname={pathname} />
+      {/* The bottom nav only fits 4 items, so on mobile some pages (e.g. AI
+          Settings, or an instructor's 5th+ nav entry) have no nav affordance
+          at all — this drawer, opened by the topbar's Menu button, surfaces
+          the FULL nav list instead of leaving that button dead. */}
+      <MobileNavDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} nav={nav} pathname={pathname} userName={userName} role={role} />
     </div>
   );
 }
 
-function Topbar({ title, role, meta }: { title: string; role: Role; meta?: { provider: string; demo: boolean; keys_exhausted: boolean } }) {
+function Topbar({ title, role, meta, onMenu }: { title: string; role: Role; meta?: { provider: string; demo: boolean; keys_exhausted: boolean }; onMenu: () => void }) {
   return (
     <header className="glass-topbar flex items-center justify-between px-4 py-3 md:px-6">
       <div className="flex items-center gap-3">
-        <button className="md:hidden text-[var(--color-navy)]" aria-label="Menu">
+        <button onClick={onMenu} className="md:hidden text-[var(--color-navy)]" aria-label="Open menu">
           <Menu size={22} />
         </button>
         <h1 className="text-lg font-bold text-[var(--color-navy)]">{title}</h1>
@@ -217,5 +229,57 @@ function MobileBottomNav({ nav, pathname }: { nav: NavEntry[]; pathname: string 
         </Link>
       ))}
     </nav>
+  );
+}
+
+function MobileNavDrawer({
+  open, onClose, nav, pathname, userName, role,
+}: { open: boolean; onClose: () => void; nav: NavEntry[]; pathname: string; userName: string; role: Role }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 md:hidden">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute left-0 top-0 flex h-full w-72 max-w-[80vw] flex-col bg-[#0f2942] py-4 text-white shadow-2xl">
+        <div className="flex items-center justify-between px-4 pb-3">
+          <div className="flex items-center gap-2.5">
+            <img src="/logo2.png" alt="LabMind" className="h-8 w-8 rounded-lg object-contain" />
+            <p className="font-bold">LabMind</p>
+          </div>
+          <button onClick={onClose} aria-label="Close menu" className="text-white/60 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        {userName && (
+          <div className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
+              {userName.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{userName}</p>
+              <p className="text-[11px] capitalize text-white/50">{role}</p>
+            </div>
+          </div>
+        )}
+
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3">
+          {nav.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} className="nav-item" data-active={isActive(pathname, href)} onClick={onClose}>
+              <Icon size={19} className="shrink-0" />
+              <span>{label}</span>
+            </Link>
+          ))}
+        </nav>
+
+        <div className="px-3 pt-2">
+          <button
+            onClick={() => signOut({ callbackUrl: "/auth" })}
+            className="w-full rounded-lg px-3 py-1.5 text-left text-xs text-white/30 hover:text-white/60"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

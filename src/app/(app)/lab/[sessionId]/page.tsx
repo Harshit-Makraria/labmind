@@ -24,8 +24,21 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
   const dismissed = useRef<Set<number>>(new Set());
 
   const experimentId = session?.protocol.experiment_id;
-  const currentStep = session ? session.protocol.steps[session.currentStepIndex] : null;
+  const steps = session?.protocol.steps ?? [];
+  const idx = session?.currentStepIndex ?? 0;
+  // Once the last step completes, currentStepIndex advances to steps.length
+  // and the experiment redirects to /result. Pressing browser Back then
+  // reloads this page with an out-of-range index — step/currentStep would be
+  // undefined and every access below (step.vision_check_required, step.title
+  // inside StepCard, etc.) would throw. Redirect back to /result instead of
+  // rendering with no step.
+  const currentStep = idx < steps.length ? steps[idx] : null;
   const stepNumber = currentStep?.step_number;
+
+  useEffect(() => {
+    if (session && idx >= steps.length) router.replace(`/lab/${sessionId}/result`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, idx, steps.length]);
 
   // Server-side flag state (which steps became unreliable after a skip).
   const { data: detail } = useQuery({
@@ -60,21 +73,21 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, stepNumber]);
 
-  if (!session) {
+  if (!session || !currentStep) {
     return (
       <div className="flex min-h-[70dvh] flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
         <Loader2 className="animate-spin" />
-        <p>Loading your lab session…</p>
-        <button onClick={() => router.push("/library")} className="text-sm text-[var(--color-brand)] underline">
-          Choose an experiment
-        </button>
+        <p>{session ? "Finishing up…" : "Loading your lab session…"}</p>
+        {!session && (
+          <button onClick={() => router.push("/library")} className="text-sm text-[var(--color-brand)] underline">
+            Choose an experiment
+          </button>
+        )}
       </div>
     );
   }
 
-  const steps = session.protocol.steps;
-  const idx = session.currentStepIndex;
-  const step = steps[idx];
+  const step = currentStep;
 
   function advance(next: number) {
     if (next < steps.length) setStepIndex(next);

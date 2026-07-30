@@ -28,9 +28,50 @@ export function interpret(req: InterpretRequest): InterpretResult {
   const deviation = theo !== 0 ? round1((Math.abs(req.student_result - theo) / theo) * 100) : 0;
   const severity = grade(deviation);
   const under = req.student_result < theo;
-  const domain = getExperiment(req.experiment_id).domain;
-  const copy = byDomain(domain, severity, under, deviation, req.student_result, req.theoretical_value, req.unit);
+  const exp = getExperiment(req.experiment_id);
+  // AUR shares the "chemistry" domain with titration for categorization
+  // purposes (it IS a chemistry technique), but a spectrophotometer reading
+  // has nothing to do with burettes or endpoints — an experiment-id override
+  // gives it its own copy instead of silently inheriting titration's.
+  const copy =
+    exp.id === "aur-experiment"
+      ? aurCopy(severity, under, deviation, req.student_result, req.theoretical_value, req.unit)
+      : byDomain(exp.domain, severity, under, deviation, req.student_result, req.theoretical_value, req.unit);
   return { deviation_percent: deviation, severity, ...copy };
+}
+
+function aurCopy(severity: ResultSeverity, under: boolean, deviation: number, measured: number, expected: number, unit: string): Copy {
+  const d = `${deviation}%`;
+  const u = unit ? ` ${unit}` : "";
+  const vs = `${measured}${u} vs. an expected ${expected}${u}`;
+
+  if (severity === "green") {
+    return {
+      diagnosis: `Excellent — ${vs} (${d} off), within the spectrophotometer's precision.`,
+      improvement: "Keep cuvettes clean and re-blank between readings to stay this accurate.",
+      learning_point: "Beer-Lambert (A = εbc) holds linearly only when cuvettes are clean and consistently oriented.",
+    };
+  }
+
+  if (severity === "amber") {
+    return under
+      ? {
+          diagnosis: `Your reading is ${vs} (${d} low) — likely a smudged or misoriented cuvette scattering light, or blanking against the wrong reference.`,
+          improvement: "Wipe the cuvette's optical faces, re-blank with a fresh reference, and load it in the same orientation each time.",
+          learning_point: "Fingerprints and scratches on a cuvette scatter light and bias absorbance readings low.",
+        }
+      : {
+          diagnosis: `Your reading is ${vs} (${d} high) — likely stray light or a cuvette not fully seated in the holder.`,
+          improvement: "Close the sample chamber lid fully and confirm the cuvette is seated before reading.",
+          learning_point: "An unsealed sample chamber lets ambient light leak in and inflate the absorbance reading.",
+        };
+  }
+
+  return {
+    diagnosis: `Your reading is ${vs} (${d} off) — too large for cuvette handling alone; suspect an un-blanked instrument, the wrong wavelength, or a sample outside the linear range.`,
+    improvement: "Re-blank at exactly 540 nm, and if the sample looks strongly coloured, dilute it — Beer-Lambert only holds up to ~2 AU.",
+    learning_point: "Above ~2 AU, absorbance stops scaling linearly with concentration — dilute a concentrated sample rather than trusting an out-of-range reading.",
+  };
 }
 
 function byDomain(

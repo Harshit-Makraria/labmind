@@ -83,12 +83,13 @@ function JoinInner() {
           <div className="h-px flex-1 bg-black/8" />
         </div>
 
-        <button
-          onClick={() => toast.info("Point your phone camera at the QR code shown in class")}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-black/12 py-3 font-semibold text-[var(--color-navy)]"
-        >
-          <QrCode size={18} /> Scan QR code
-        </button>
+        {/* Not a clickable action — there's no in-page camera scanner. The
+            instructor's generated QR code already encodes a join link, so a
+            phone's own camera app opens it directly; this is a hint, not a
+            button, so it doesn't imply an in-app scan that isn't there. */}
+        <div className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-black/12 py-3 text-sm text-[var(--color-muted)]">
+          <QrCode size={18} /> Or scan the QR code on screen with your phone's camera app
+        </div>
       </div>
 
       {/* Demo hint */}
