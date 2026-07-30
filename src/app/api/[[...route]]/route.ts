@@ -36,6 +36,7 @@ import {
 import { db } from "@/server/db";
 import {
   addStudentToSession, createInstructorSession, getInstructorSession,
+  instructorOwnsCode, instructorOwnsVerification,
   listInstructorSessions, listVerifications, resolveVerification,
   seedDemoData, submitVerification,
 } from "@/server/store/code-store";
@@ -43,6 +44,7 @@ import { getAccuracyReport } from "@/server/store/accuracy";
 import { getLlmStatus, loadRuntimeSettings, saveRuntimeSettings } from "@/server/runtime-config";
 import { exhaustedProviders, anyExhausted } from "@/server/llm/provider-state";
 import { fetchModelCatalog } from "@/server/llm/model-catalog";
+import { rateLimit } from "@/server/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,9 +53,35 @@ type Vars = { user: { id: string; email?: string | null; name?: string | null; r
 
 const app = new Hono<{ Variables: Vars }>().basePath("/api");
 
+/**
+ * Can this authenticated user read/mutate this student's lab session? A
+ * LabSession has no route-level ownership check by default, so a client that
+ * knows (or guesses/leaks) another student's session_id could otherwise read
+ * or write their grading-relevant data. Allowed for: the owning student, the
+ * instructor who owns the session's class, or anyone when the session
+ * predates user-attribution (userId null — treated as ownerless, matching
+ * the same rule used for pre-ownership InstructorSession rows).
+ */
+function clientIp(c: { req: { header: (name: string) => string | undefined } }): string {
+  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+}
+
+async function sessionAccess(sessionId: string, user: Vars["user"]): Promise<"allowed" | "not_found" | "forbidden"> {
+  const row = await db.labSession.findUnique({ where: { id: sessionId }, select: { userId: true, instructorCode: true } });
+  if (!row) return "not_found";
+  if (!row.userId || row.userId === user.id) return "allowed";
+  if (user.role === "instructor" && row.instructorCode && (await instructorOwnsCode(row.instructorCode, user.id))) return "allowed";
+  return "forbidden";
+}
+
 app.onError((err, c) => {
   console.error("[API error]", err);
-  return c.json({ error: err.message ?? "Internal server error" }, 500);
+  // Full detail is logged above for debugging — the client only ever gets a
+  // generic message in production, since err.message can carry internal
+  // detail (DB constraint text, file paths, provider error bodies) that
+  // shouldn't leave the server.
+  const message = process.env.NODE_ENV === "production" ? "Internal server error" : (err.message ?? "Internal server error");
+  return c.json({ error: message }, 500);
 });
 
 // ─── Init on first request ───────────────────────────────────────────
@@ -222,6 +250,9 @@ app.post("/protocol/parse", async (c) => {
 // ─── Safety check ────────────────────────────────────────────────────
 app.post("/safety/check", async (c) => {
   const body = await c.req.json<SafetyCheckRequest>();
+  if (body.session_id && (await sessionAccess(body.session_id, c.get("user"))) === "forbidden") {
+    return c.json({ error: "Forbidden" }, 403);
+  }
   const t0 = Date.now();
   // Hydrate BEFORE mutating. The store's sync mutators no-op when the session
   // isn't in this instance's in-memory Map — on serverless that silently threw
@@ -254,6 +285,9 @@ app.post("/safety/check", async (c) => {
 // ─── Vision check ────────────────────────────────────────────────────
 app.post("/vision/check", async (c) => {
   const body = await c.req.json<VisionCheckRequest>();
+  if (body.session_id && (await sessionAccess(body.session_id, c.get("user"))) === "forbidden") {
+    return c.json({ error: "Forbidden" }, 403);
+  }
   const t0 = Date.now();
   console.log(`\n[ROUTE /vision/check] ▶ session=${body.session_id} step=${body.step_number} type=${body.expected?.type} exp_value=${body.expected?.expected_value}`);
 
@@ -455,6 +489,9 @@ app.post("/safety/escalate", async (c) => {
 // ─── Results interpret ───────────────────────────────────────────────
 app.post("/results/interpret", async (c) => {
   const body = await c.req.json<InterpretRequest>();
+  if (body.session_id && (await sessionAccess(body.session_id, c.get("user"))) === "forbidden") {
+    return c.json({ error: "Forbidden" }, 403);
+  }
   const t0 = Date.now();
   const result = interpret(body);
   // hydrate before the sync mutator, else it no-ops and the final result is lost
@@ -469,6 +506,9 @@ app.post("/results/interpret", async (c) => {
 // ─── Session GET ─────────────────────────────────────────────────────
 app.get("/session/:sessionId", async (c) => {
   const { sessionId } = c.req.param();
+  const access = await sessionAccess(sessionId, c.get("user"));
+  if (access === "not_found") return c.json({ error: "not found" }, 404);
+  if (access === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const detail = await getSessionDetailFromDB(sessionId);
   if (!detail) return c.json({ error: "not found" }, 404);
   const session = await hydrateSession(sessionId);
@@ -479,6 +519,8 @@ app.get("/session/:sessionId", async (c) => {
 app.post("/session/action", async (c) => {
   const { session_id, action } = await c.req.json<{ session_id: string; action: SessionAction }>();
   if (!session_id) return c.json({ error: "session_id required" }, 400);
+  const access = await sessionAccess(session_id, c.get("user"));
+  if (access === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const session = await hydrateSession(session_id);
   if (!session) return c.json({ error: "Session not found" }, 404);
 
@@ -573,12 +615,13 @@ app.post("/session/action", async (c) => {
 
 // ─── Dashboard ───────────────────────────────────────────────────────
 app.get("/dashboard/sessions", async (c) => {
-  const live = await allSummariesFromDB();
+  const live = await allSummariesFromDB(c.get("user").id);
   return c.json(live);
 });
 
 app.get("/instructor/sessions/:code/students", async (c) => {
   const code = c.req.param("code").toUpperCase();
+  if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);
   const rows = await db.labSession.findMany({
     where: { instructorCode: code },
     orderBy: { updatedAt: "desc" },
@@ -604,6 +647,9 @@ app.get("/instructor/sessions/:code/students", async (c) => {
 });
 
 app.get("/dashboard/verify", (c) => {
+  if (!rateLimit(`dashboard-verify:${clientIp(c)}`, 10, 5 * 60 * 1000)) {
+    return c.json({ error: "Too many attempts. Try again in a few minutes." }, 429);
+  }
   const passcode = c.req.query("passcode") ?? "";
   return c.json({ ok: passcode === getConfig().instructorPasscode });
 });
@@ -642,15 +688,23 @@ app.post("/agent/chat", async (c) => {
 });
 
 // ─── Instructor sessions ─────────────────────────────────────────────
-app.get("/instructor/sessions", async (c) => c.json(await listInstructorSessions()));
+// Every route below is scoped to classes the calling instructor actually
+// created (instructorOwnsCode) — otherwise any instructor account could
+// read, export, or mutate any other instructor's cohort by guessing/knowing
+// its join code. Ownerless rows (created before ownership tracking existed)
+// stay visible to everyone rather than becoming inaccessible.
+app.get("/instructor/sessions", async (c) => c.json(await listInstructorSessions(c.get("user").id)));
 app.get("/instructor/sessions/:code", async (c) => {
-  const sess = await getInstructorSession(c.req.param("code"));
+  const code = c.req.param("code");
+  if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);
+  const sess = await getInstructorSession(code);
   if (!sess) return c.json({ error: "Not found" }, 404);
   return c.json(sess);
 });
 
 app.patch("/instructor/sessions/:code", async (c) => {
   const code = c.req.param("code").toUpperCase();
+  if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);
   const { status } = await c.req.json<{ status: string }>();
   await db.instructorSession.update({ where: { code }, data: { status } as Record<string, unknown> });
   return c.json({ ok: true, status });
@@ -670,13 +724,14 @@ app.post("/instructor/sessions", async (c) => {
     course_code: body.course_code ?? "",
     date: body.date ?? new Date().toISOString().split("T")[0],
     require_verification: !!body.require_verification,
-  } as Parameters<typeof createInstructorSession>[0]);
+  } as Parameters<typeof createInstructorSession>[0], c.get("user").id);
   return c.json(session);
 });
 
 // ─── Pre-lab quiz ────────────────────────────────────────────────────
 app.get("/lab/:sessionId/prelab", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const session = await hydrateSession(sessionId);
   const experimentId = session?.experimentId;
   const exp = getExperiment(experimentId);
@@ -687,6 +742,7 @@ app.get("/lab/:sessionId/prelab", async (c) => {
 
 app.post("/lab/:sessionId/prelab", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const { answers } = await c.req.json<{ answers: Record<string, number> }>();
   const session = await hydrateSession(sessionId);
   // Idempotency: if already passed, don't re-score (prevent gaming by re-submitting)
@@ -702,6 +758,7 @@ app.post("/lab/:sessionId/prelab", async (c) => {
 // ─── Hypothesis ───────────────────────────────────────────────────────
 app.post("/lab/:sessionId/hypothesis", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const { hypothesis } = await c.req.json<{ hypothesis: string }>();
   await db.labSession.update({ where: { id: sessionId }, data: { hypothesis } }).catch(() => {});
   return c.json({ ok: true });
@@ -710,6 +767,7 @@ app.post("/lab/:sessionId/hypothesis", async (c) => {
 // ─── Benchmarking ─────────────────────────────────────────────────────
 app.get("/lab/:sessionId/benchmark", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const row = await db.labSession.findUnique({ where: { id: sessionId }, select: { experimentId: true, deviationPercent: true } });
   if (!row) return c.json({ class_avg_deviation: null, your_deviation: null, percentile: null });
   const peers = await db.labSession.findMany({
@@ -727,6 +785,7 @@ app.get("/lab/:sessionId/benchmark", async (c) => {
 // ─── CSV export ───────────────────────────────────────────────────────
 app.get("/instructor/sessions/:code/students/export", async (c) => {
   const code = c.req.param("code").toUpperCase();
+  if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);
   const rows = await db.labSession.findMany({ where: { instructorCode: code }, orderBy: { updatedAt: "desc" } });
   const csv = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [
@@ -751,12 +810,13 @@ app.get("/instructor/accuracy", async (c) => c.json(await getAccuracyReport()));
 
 app.get("/instructor/verify", async (c) => {
   const status = c.req.query("status") as "pending" | "approved" | "rejected" | undefined;
-  return c.json(await listVerifications(status));
+  return c.json(await listVerifications(status, c.get("user").id));
 });
 
 app.post("/instructor/verify", async (c) => {
   const body = await c.req.json();
   if (body.action === "resolve") {
+    if (!(await instructorOwnsVerification(body.id, c.get("user").id))) return c.json({ error: "Not found" }, 404);
     const corrected = typeof body.corrected_reading === "number" ? body.corrected_reading : null;
     await resolveVerification(body.id, body.status, body.comment, corrected);
     return c.json({ ok: true });
@@ -776,6 +836,13 @@ app.post("/instructor/verify", async (c) => {
 
 // ─── Student join ─────────────────────────────────────────────────────
 app.post("/student/join", async (c) => {
+  // Join codes are 4 chars over a ~32-char alphabet (~1M combinations) — cheap
+  // enough to brute-force without a throttle. Keyed by IP, not by code, so a
+  // single guesser is slowed without penalizing everyone hitting one popular
+  // code from a shared classroom NAT.
+  if (!rateLimit(`student-join:${clientIp(c)}`, 20, 5 * 60 * 1000)) {
+    return c.json({ error: "Too many attempts. Try again in a few minutes." }, 429);
+  }
   const { code, student_name, session_id } = await c.req.json();
   console.log(`\n[ROUTE /student/join] ▶ code=${code} student="${student_name}" session_id=${session_id}`);
   const instrSession = await getInstructorSession(code);
@@ -856,6 +923,7 @@ app.get("/student/history", async (c) => {
 // else's apparatus still cannot beat the clock.
 app.get("/lab/:sessionId/pacing", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const session = await hydrateSession(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);
   const row = await db.labSession.findUnique({ where: { id: sessionId }, select: { createdAt: true } });
@@ -866,6 +934,7 @@ app.get("/lab/:sessionId/pacing", async (c) => {
 // ─── Tamper-evident safety log ───────────────────────────────────────
 app.get("/lab/:sessionId/audit", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const session = await hydrateSession(sessionId);
   if (!session) return c.json({ error: "Session not found" }, 404);
   // Read from the append-only AuditLogEntry table, NOT the mutable safetyLog
@@ -882,6 +951,7 @@ app.get("/lab/:sessionId/audit", async (c) => {
 // auto-verification bar so scarce attention goes where the risk actually is.
 app.get("/instructor/sessions/:code/risk", async (c) => {
   const code = c.req.param("code").toUpperCase();
+  if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);
   const rows = await db.labSession.findMany({ where: { instructorCode: code } });
 
   const assessments = await Promise.all(
@@ -915,11 +985,13 @@ app.get("/instructor/sessions/:code/risk", async (c) => {
 // ─── Lab summary & report ────────────────────────────────────────────
 app.get("/lab/:sessionId/summary", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   return c.json(await buildLearningSummary(sessionId));
 });
 
 app.get("/lab/:sessionId/report", async (c) => {
   const { sessionId } = c.req.param();
+  if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   return c.json(await buildReport(sessionId));
 });
 

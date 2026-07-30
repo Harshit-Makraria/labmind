@@ -97,11 +97,19 @@ export async function getInstructorSession(code: string): Promise<InstructorSess
     created_at: row.createdAt.toISOString(),
     student_session_ids: row.students.map((s) => s.id),
     require_verification,
+    created_by_user_id: (row as Record<string, unknown>)["createdByUserId"] as string | null,
   };
 }
 
-export async function listInstructorSessions(): Promise<InstructorSession[]> {
+/**
+ * Sessions owned by this instructor. Rows created before ownership tracking
+ * existed have createdByUserId === null — those are ownerless/shared demo
+ * data, not "belongs to nobody", so they still show up for every instructor
+ * rather than silently vanishing.
+ */
+export async function listInstructorSessions(ownerUserId?: string): Promise<InstructorSession[]> {
   const rows = await db.instructorSession.findMany({
+    where: ownerUserId ? { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } : undefined,
     orderBy: { createdAt: "desc" },
     include: { students: { select: { id: true } } },
   });
@@ -119,11 +127,13 @@ export async function listInstructorSessions(): Promise<InstructorSession[]> {
     created_at: row.createdAt.toISOString(),
     student_session_ids: row.students.map((s) => s.id),
     require_verification: (() => { try { if (row.notes) { const n = typeof row.notes === "string" ? JSON.parse(row.notes) : (row.notes as any); return !!n?.require_verification; } } catch (e) {} return false; })(),
+    created_by_user_id: (row as Record<string, unknown>)["createdByUserId"] as string | null,
   }));
 }
 
 export async function createInstructorSession(
   meta: Omit<InstructorSession, "code" | "created_at" | "student_session_ids">,
+  createdByUserId?: string,
 ): Promise<InstructorSession> {
   const code = await generateCode();
   const row = await db.instructorSession.create({
@@ -138,6 +148,7 @@ export async function createInstructorSession(
       courseCode: (meta as Record<string, unknown>)["course_code"] as string ?? "",
       date: meta.date ?? new Date().toISOString().split("T")[0],
       notes: JSON.stringify({ require_verification: !!meta["require_verification"] }),
+      createdByUserId: createdByUserId ?? null,
     },
   });
   return {
@@ -154,7 +165,23 @@ export async function createInstructorSession(
     created_at: row.createdAt.toISOString(),
     student_session_ids: [],
     require_verification: !!meta["require_verification"],
+    created_by_user_id: createdByUserId ?? null,
   };
+}
+
+/**
+ * Does this instructor own the class behind this code? Ownerless rows
+ * (createdByUserId null — pre-ownership demo data) are treated as shared, so
+ * they don't lock out every instructor after this feature shipped.
+ */
+export async function instructorOwnsCode(code: string, userId: string): Promise<boolean> {
+  const row = await db.instructorSession.findUnique({
+    where: { code: code.toUpperCase().trim() },
+    select: { createdByUserId: true } as Record<string, boolean>,
+  });
+  if (!row) return false;
+  const owner = (row as Record<string, unknown>)["createdByUserId"] as string | null;
+  return owner === null || owner === userId;
 }
 
 export async function addStudentToSession(code: string, studentSessionId: string) {
@@ -205,13 +232,36 @@ export async function submitVerification(
   return rowToEntry(row);
 }
 
-export async function listVerifications(status?: VerificationStatus): Promise<VerificationEntry[]> {
+/**
+ * Verification-queue entries scoped to this instructor's own classes. Joins
+ * through the student's session → instructorCode → InstructorSession owner,
+ * since VerificationEntry itself has no direct owner column. Ownerless
+ * (pre-ownership) classes are included for everyone, same rule as
+ * listInstructorSessions/instructorOwnsCode.
+ */
+export async function listVerifications(status?: VerificationStatus, ownerUserId?: string): Promise<VerificationEntry[]> {
   const rows = await db.verificationEntry.findMany({
-    where: status ? { status } : undefined,
+    where: {
+      ...(status ? { status } : {}),
+      ...(ownerUserId
+        ? { session: { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } } }
+        : {}),
+    },
     orderBy: { submittedAt: "desc" },
     include: { session: { select: { experimentId: true } } },
   });
   return rows.map((row) => ({ ...rowToEntry(row), unit: unitFor(row.session.experimentId, row.stepNumber) }));
+}
+
+/** Does this instructor own the class the given verification entry's student session belongs to? */
+export async function instructorOwnsVerification(verificationId: string, userId: string): Promise<boolean> {
+  const entry = await db.verificationEntry.findUnique({
+    where: { id: verificationId },
+    select: { session: { select: { instructorCode: true } } },
+  });
+  if (!entry) return false;
+  if (!entry.session.instructorCode) return true; // no class attached — nothing to scope
+  return instructorOwnsCode(entry.session.instructorCode, userId);
 }
 
 /**

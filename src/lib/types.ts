@@ -283,6 +283,7 @@ export interface InstructorSession {
   status?: string;
   institution?: string;
   course_code?: string;
+  created_by_user_id?: string | null;
 }
 
 // ─── Verification queue ─────────────────────────────────────────────

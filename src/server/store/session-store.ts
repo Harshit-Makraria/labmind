@@ -352,8 +352,19 @@ export function allSummaries(): SessionSummary[] {
     .map(summarize);
 }
 
-export async function allSummariesFromDB(): Promise<SessionSummary[]> {
-  const rows = await db.labSession.findMany({ orderBy: { updatedAt: "desc" } });
+/**
+ * The instructor "bench wall" — scoped to this instructor's own classes.
+ * Joins through instructorCode → InstructorSession.createdByUserId since
+ * LabSession has no direct owner column of its own; ownerless (pre-ownership)
+ * classes and un-joined sessions remain visible to everyone.
+ */
+export async function allSummariesFromDB(ownerUserId?: string): Promise<SessionSummary[]> {
+  const rows = await db.labSession.findMany({
+    where: ownerUserId
+      ? { OR: [{ instructorCode: null }, { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } }] }
+      : undefined,
+    orderBy: { updatedAt: "desc" },
+  });
   return rows.map((row) => {
     const steps = (row.steps as unknown as StepRecord[]) ?? [];
     return {

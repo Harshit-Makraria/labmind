@@ -78,6 +78,10 @@ export function getConfig(): LabmindConfig {
     azureApiKey: env.AZURE_OPENAI_API_KEY,
     azureDeployment: env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o-mini",
     azureApiVersion: env.AZURE_OPENAI_API_VERSION ?? "2024-02-01",
+    // "labmind2026" is the documented public demo passcode (see .env.example)
+    // for a zero-config run, NOT a real secret — set INSTRUCTOR_PASSCODE in
+    // production to replace it. It's no longer shown on-screen anywhere, and
+    // it now also gates the instructor role at signup (see signup route).
     instructorPasscode: env.INSTRUCTOR_PASSCODE ?? "labmind2026",
   };
 }

@@ -13,6 +13,7 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [instructorPasscode, setInstructorPasscode] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -34,12 +35,13 @@ export default function SignupPage() {
     e.preventDefault();
     if (!email || !password || !role) return;
     if (password.length < 6) { toast.error("Password must be at least 6 characters"); return; }
+    if (role === "instructor" && !instructorPasscode) { toast.error("Instructor passcode is required"); return; }
     setLoading(true);
 
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password, role }),
+      body: JSON.stringify({ name, email, password, role, instructor_passcode: instructorPasscode }),
     });
     const data = await res.json();
 
@@ -94,6 +96,20 @@ export default function SignupPage() {
               ))}
             </div>
           </div>
+
+          {role === "instructor" && (
+            <div className="anim-fade-up">
+              <label className="mb-1.5 block text-sm font-semibold text-[var(--color-navy)]">Instructor passcode</label>
+              <input
+                type="password"
+                value={instructorPasscode}
+                onChange={(e) => setInstructorPasscode(e.target.value)}
+                placeholder="Provided by your institution"
+                required
+                className="input-base"
+              />
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-[var(--color-navy)]">
@@ -155,7 +171,7 @@ export default function SignupPage() {
 
           <button
             type="submit"
-            disabled={loading || !email || !password}
+            disabled={loading || !email || !password || (role === "instructor" && !instructorPasscode)}
             className="btn-secondary w-full"
           >
             {loading && <Loader2 size={18} className="animate-spin" />}

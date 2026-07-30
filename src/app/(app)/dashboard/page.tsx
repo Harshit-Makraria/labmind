@@ -67,7 +67,6 @@ function PasscodeGate({ onUnlock }: { onUnlock: () => void }) {
         <Button onClick={() => verify.mutate()} disabled={verify.isPending}>
           {verify.isPending ? "Checking…" : "Unlock console"}
         </Button>
-        <p className="text-center text-xs text-[var(--color-muted)]/70">Demo passcode: labmind2026</p>
       </div>
     </div>
   );

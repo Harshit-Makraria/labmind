@@ -112,19 +112,25 @@ model AuditLogEntry {
 }
 
 model InstructorSession {
-  code           String       @id
-  sessionName    String
-  experimentId   String
-  experimentName String
-  batch          String       @default("")
-  department     String       @default("")
-  institution    String       @default("")
-  courseCode     String       @default("")
-  date           String
-  status         String       @default("active")
-  notes          Json         @default("{}")
-  students       LabSession[]
-  createdAt      DateTime     @default(now())
+  code            String       @id
+  sessionName     String
+  experimentId    String
+  experimentName  String
+  batch           String       @default("")
+  department      String       @default("")
+  institution     String       @default("")
+  courseCode      String       @default("")
+  date            String
+  status          String       @default("active")
+  notes           Json         @default("{}")
+  students        LabSession[]
+  /// Owning instructor account. Nullable so pre-existing rows (seeded demo
+  /// data, sessions created before this column existed) don't break — those
+  /// are treated as ownerless/shared rather than retroactively assigned.
+  createdByUserId String?
+  createdAt       DateTime     @default(now())
+
+  @@index([createdByUserId])
 }
 
 model VerificationEntry {
