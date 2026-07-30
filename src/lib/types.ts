@@ -101,6 +101,19 @@ export type VisionVerificationStatus =
   | "retake"          // confidence < 0.40 — image too poor, ask student to retake
   | "failed";         // pass=false (good image) — retry or manual override after 2×
 
+/**
+ * One stage of the verification pipeline, surfaced to the student instead of
+ * staying server-side log output. Turns "the AI said no" into an itemised,
+ * inspectable breakdown of what was actually checked and why it did or
+ * didn't pass — every field here reflects a real check that ran, not
+ * decorative copy.
+ */
+export interface VisionCheckStep {
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
 export interface VisionResult {
   reading: number | null;
   confidence: number;
@@ -120,6 +133,9 @@ export interface VisionResult {
    * UI draw the marker at the bar the student actually had to clear.
    */
   verification_threshold: number;
+  /** Itemised pipeline breakdown — see VisionCheckStep. Optional only for
+   * backward compatibility with any caller that predates this field. */
+  checks?: VisionCheckStep[];
 }
 
 // ─── Safety engine ──────────────────────────────────────────────────

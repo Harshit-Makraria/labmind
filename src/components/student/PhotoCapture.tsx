@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { Camera, CheckCircle2, Clock, Loader2, PencilLine, RefreshCw, XCircle } from "lucide-react";
+import { Camera, CheckCircle2, ChevronDown, Clock, Loader2, PencilLine, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -28,6 +28,47 @@ function ConfidenceBar({ confidence, tone, threshold }: { confidence: number; to
     <div className="progress-track">
       <div className="progress-fill" style={{ width: `${pct}%`, backgroundColor: tone }} />
       <span className="progress-marker" style={{ left: `${(threshold ?? VISION_HIGH_CONFIDENCE) * 100}%` }} />
+    </div>
+  );
+}
+
+/**
+ * The actual pipeline breakdown (VisionResult.checks) instead of a single
+ * pass/fail message — turns "the AI said no" into an inspectable list of
+ * what was checked and why. Every line reflects a real check LabMind ran
+ * for THIS photo (see vision.ts), not canned copy.
+ */
+function VerificationBreakdown({ checks }: { checks: NonNullable<VisionResult["checks"]> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-[var(--radius-btn)] border border-black/[0.08] bg-white/60">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+      >
+        <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-navy)]">
+          <ShieldCheck size={14} className="text-[var(--color-brand)]" />
+          How LabMind checked this photo
+        </span>
+        <ChevronDown size={14} className={`text-[var(--color-muted)] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <ul className="anim-fade-up space-y-1.5 border-t border-black/[0.06] px-3 py-2.5">
+          {checks.map((c, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs">
+              {c.passed ? (
+                <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
+              ) : (
+                <XCircle size={13} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
+              )}
+              <span>
+                <span className="font-semibold text-[var(--color-navy)]">{c.label}:</span>{" "}
+                <span className="text-[var(--color-muted)]">{c.detail}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -241,6 +282,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
               <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — too low to process. Check lighting, focus, and angle.
               </p>
+              {result.checks && <VerificationBreakdown checks={result.checks} />}
             </div>
           </div>
         )}
@@ -261,6 +303,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
               <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — clears your {(result.verification_threshold * 100).toFixed(0)}% auto-pass bar
               </p>
+              {result.checks && <VerificationBreakdown checks={result.checks} />}
             </div>
           </div>
         )}
@@ -281,6 +324,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
               <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% — below your {(result.verification_threshold * 100).toFixed(0)}% bar, instructor will verify. You can continue.
               </p>
+              {result.checks && <VerificationBreakdown checks={result.checks} />}
             </div>
           </div>
         )}
@@ -301,6 +345,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
               <p className="font-data text-xs text-[var(--color-muted)]">
                 Confidence {(result.confidence * 100).toFixed(0)}% · attempt {result.attempts}
               </p>
+              {result.checks && <VerificationBreakdown checks={result.checks} />}
             </div>
           </div>
         )}

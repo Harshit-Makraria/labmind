@@ -80,6 +80,15 @@ This is the part a technical judge will probe, so it's built to hold up:
     student route is scoped to that student's own session — one instructor account cannot
     browse another's cohort, and one student cannot read or tamper with another's grading
     data by guessing an ID.
+11. **The verification pipeline shows its work, live, in the student UI — this is the one to
+    lead the demo with.** Every photo submission renders a "How LabMind checked this photo"
+    breakdown: image quality, cross-provider agreement (with the actual per-provider readings
+    and spread when multiple keys are configured), self-consistency against the model's own
+    reported graduation marks, scale/subject legibility, the zero-AI physical-constraints
+    result, and the final tolerance comparison — each with a real pass/fail and the specific
+    number or reason behind it. Points #1–4 above are true of the backend either way; this is
+    what makes them visible and falsifiable to a judge in the room, not just asserted in this
+    README.
 
 ## Demo mode (no API key needed)
 

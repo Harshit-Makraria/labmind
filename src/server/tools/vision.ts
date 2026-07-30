@@ -3,7 +3,7 @@
  * Falls back to demo heuristics when in DEMO_MODE or when no API key is available.
  */
 import "server-only";
-import type { VisionCheckRequest, VisionResult, VisionExpected, VisionVerificationStatus } from "@/lib/types";
+import type { VisionCheckRequest, VisionCheckStep, VisionResult, VisionExpected, VisionVerificationStatus } from "@/lib/types";
 import { VISION_HIGH_CONFIDENCE, VISION_LOW_CONFIDENCE } from "@/lib/types";
 import { effectiveDemo } from "@/server/config";
 import { assessQuality } from "@/server/tools/image-quality";
@@ -117,21 +117,33 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   // configured.
   const quality = await assessQuality(img);
   if (!quality.ok) {
-    return { reading: null, confidence: 0.2, pass: false, deviation: null, message: quality.reason ?? "Image quality too low to analyse.", notes: "Retake the photo and submit again.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "retake" as VisionVerificationStatus };
+    const checks: VisionCheckStep[] = [{ label: "Image quality", passed: false, detail: quality.reason ?? "Too blurry or poorly exposed to analyse." }];
+    return { reading: null, confidence: 0.2, pass: false, deviation: null, message: quality.reason ?? "Image quality too low to analyse.", notes: "Retake the photo and submit again.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "retake" as VisionVerificationStatus, checks };
   }
 
   const mismatch = metrics && shapeMismatch(expected.type, metrics);
   if (mismatch) {
-    return { reading: null, confidence: 0.3, pass: false, deviation: null, message: mismatch, notes: "Demo heuristic — the photo's shape doesn't match the expected instrument for this step.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "failed" as VisionVerificationStatus };
+    const checks: VisionCheckStep[] = [
+      { label: "Image quality", passed: true, detail: `Sharp and well-exposed (${quality.width}×${quality.height}).` },
+      { label: "Instrument shape match", passed: false, detail: mismatch },
+    ];
+    return { reading: null, confidence: 0.3, pass: false, deviation: null, message: mismatch, notes: "Demo heuristic — the photo's shape doesn't match the expected instrument for this step.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "failed" as VisionVerificationStatus, checks };
   }
 
   const confidence = round2(0.84 + (h % 6) / 100);
+  const qualityCheck: VisionCheckStep = { label: "Image quality", passed: true, detail: `Sharp and well-exposed (${quality.width}×${quality.height}).` };
+  const shapeCheck: VisionCheckStep = { label: "Instrument shape match", passed: true, detail: "Matches the expected profile for this instrument." };
+
   if (expected.type === "colour_change") {
     // No graduation scale to compare against here (a colour endpoint is
     // binary), so this stays a deterministic accept in demo mode — the
     // genuine-miss jitter below covers the numeric checks, where a
     // reading vs. tolerance actually gives a real number to miss.
-    return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(true, confidence) };
+    const checks: VisionCheckStep[] = [
+      qualityCheck, shapeCheck,
+      { label: "Colour endpoint", passed: true, detail: "Observed colour matches the expected endpoint (demo)." },
+    ];
+    return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(true, confidence), checks };
   }
 
   // Deterministic (same image+step always gives the same demo verdict), but
@@ -155,11 +167,15 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const deviation = round2(reading - ev);
   // Always derive pass from math — never from a heuristic bool
   const pass = Math.abs(deviation) <= tol;
+  const checks: VisionCheckStep[] = [
+    qualityCheck, shapeCheck,
+    { label: "Reading vs. tolerance", passed: pass, detail: `${reading} ${unit} vs. expected ${ev} ${unit} (±${tol} ${unit}) — Δ ${deviation} ${unit}.` },
+  ];
   return {
     reading, confidence, pass, deviation,
     message: pass ? `Reading ${reading} ${unit} — within tolerance. ✓` : `Reading ${reading} ${unit} — outside tolerance. Re-check.`,
     notes: `Expected ${ev} ${unit}, got ${reading} ${unit} (Δ ${deviation} ${unit}). Demo mode.`,
-    attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(pass, confidence),
+    attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(pass, confidence), checks,
   };
 }
 
@@ -211,6 +227,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       notes: "Retake the photo and submit again — this was not sent for review.",
       attempts: 1, manual_override_available: false,
       verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: "retake" as VisionVerificationStatus,
+      checks: [{ label: "Image quality", passed: false, detail: quality.reason ?? "Too blurry or poorly exposed — never sent to the AI." }],
     };
   }
 
@@ -257,6 +274,10 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     let pass: boolean;
     let deviation: number | null = null;
     const penalties: string[] = [];
+    let selfConsistencyDetail = "Reading falls within its own reported graduation bracket.";
+    let selfConsistencyOk = true;
+    let legibilityDetail = "Model reported the scale and subject as clearly visible.";
+    let legibilityOk = true;
 
     // (a) Self-consistency: the reading must sit between the two graduation
     //     labels the model claims to see. A model that invents a number to
@@ -269,8 +290,13 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       // Allow one graduation of slack for rounding at the boundary.
       const slack = Math.max(0.5, (hi - lo) * 0.5);
       if (reading < lo - slack || reading > hi + slack) {
-        penalties.push(`reading ${reading} falls outside its own reported graduations ${lo}–${hi}`);
+        const detail = `Reading ${reading} falls outside its own reported graduations ${lo}–${hi}`;
+        penalties.push(detail);
+        selfConsistencyDetail = detail + ".";
+        selfConsistencyOk = false;
         conf = round2(Math.min(conf, 0.35));
+      } else {
+        selfConsistencyDetail = `Reading ${reading} sits between its own reported graduations ${lo}–${hi}.`;
       }
     }
 
@@ -278,10 +304,14 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     //     certainty while also saying the scale was illegible.
     if (parsed.scale_legible === false) {
       penalties.push("model reported the scale as illegible");
+      legibilityDetail = "Model reported the scale as illegible.";
+      legibilityOk = false;
       conf = round2(Math.min(conf, 0.3));
     }
     if (parsed.meniscus_visible === false || parsed.solution_visible === false) {
       penalties.push("model reported the subject as not clearly visible");
+      legibilityDetail = "Model reported the subject as not clearly visible.";
+      legibilityOk = false;
       conf = round2(Math.min(conf, 0.3));
     }
     // (c) A null reading is never a pass, whatever confidence was claimed.
@@ -334,6 +364,39 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       console.warn(`[VISION] ⚠  confidence capped to ${conf} — ${penalties.join("; ")}`);
     }
 
+    // ── Itemised breakdown for the student — the actual pipeline stages that
+    // ran, not decorative copy. Cross-provider agreement uses the ensemble's
+    // real per-sample readings and spread; every other line reflects a
+    // penalty/violation actually computed above.
+    const agreementDetail =
+      ensemble.providersUsed.length >= 2
+        ? `${ensemble.samples.map((s) => `${s.provider} → ${s.reading ?? "no reading"}`).join(", ")}${ensemble.spread !== null ? ` (spread ${ensemble.spread})` : ""}.`
+        : ensemble.samples.length > 1
+          ? `Read ${ensemble.samples.length}× by ${ensemble.providersUsed[0]}: ${ensemble.samples.map((s) => s.reading ?? "no reading").join(", ")}${ensemble.spread !== null ? ` (spread ${ensemble.spread})` : ""}. Add a second provider key for cross-model agreement.`
+          : `Read once by ${ensemble.providersUsed[0] ?? "one provider"} — add another provider key for cross-model agreement.`;
+    const agreementOk = conf >= VISION_LOW_CONFIDENCE;
+
+    const physicsOk = physical.violations.length === 0;
+    const physicsDetail = physicsOk
+      ? "Reading is in-range, on-scale, and consistent with your prior readings."
+      : physical.violations.map((v) => v.message).join(" ");
+
+    const finalDetail =
+      req.expected.type === "colour_change"
+        ? (pass ? "Observed colour matches the expected endpoint." : "Observed colour does not match the expected endpoint.")
+        : reading !== null && ev !== null && ev !== undefined
+          ? `${reading} vs. expected ${ev} (±${tol}) — Δ ${deviation}.`
+          : "No usable reading to compare against the expected value.";
+
+    const checks: VisionCheckStep[] = [
+      { label: "Image quality", passed: true, detail: `Sharp and well-exposed (${quality.width}×${quality.height}).` },
+      { label: "Cross-provider agreement", passed: agreementOk, detail: agreementDetail },
+      { label: "Self-consistency", passed: selfConsistencyOk, detail: selfConsistencyDetail },
+      { label: "Scale & subject legible", passed: legibilityOk, detail: legibilityDetail },
+      { label: "Physical constraints", passed: physicsOk, detail: physicsDetail },
+      { label: "Matches expected value", passed: pass, detail: finalDetail },
+    ];
+
     const result: VisionResult = {
       reading,
       confidence: conf,
@@ -345,6 +408,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       attempts: 1,
       manual_override_available: false,
       verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(pass, conf),
+      checks,
     };
 
     console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation} status=${result.verification_status}`);

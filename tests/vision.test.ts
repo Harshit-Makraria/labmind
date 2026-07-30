@@ -51,6 +51,35 @@ describe("vision tool (golden dataset)", () => {
     expect(Math.abs((resolved.reading ?? 0) - 24.5)).toBeLessThanOrEqual(0.1);
   });
 
+  it("every result carries an itemised checks breakdown, not just a flat message", async () => {
+    const r = await checkVision({
+      session_id: "t",
+      step_number: 5,
+      image_base64: await buretteLikeImage(),
+      expected: { type: "burette_reading", expected_value: 24.5, tolerance: 0.1 },
+    });
+    expect(r.checks).toBeDefined();
+    expect(r.checks!.length).toBeGreaterThan(0);
+    for (const c of r.checks!) {
+      expect(typeof c.label).toBe("string");
+      expect(typeof c.passed).toBe("boolean");
+      expect(c.detail.length).toBeGreaterThan(0);
+    }
+    // The final check should reflect the same pass/fail verdict as the top-level result.
+    expect(r.checks!.at(-1)!.passed).toBe(r.pass);
+  });
+
+  it("a rejected (blurry) photo still returns a checks breakdown explaining why", async () => {
+    const r = await checkVision({
+      session_id: "t",
+      step_number: 5,
+      image_base64: await makeImageBase64(80, 80, { r: 255, g: 255, b: 255 }),
+      expected: { type: "burette_reading", expected_value: 24.5, tolerance: 0.1 },
+    });
+    expect(r.checks).toBeDefined();
+    expect(r.checks!.some((c) => !c.passed)).toBe(true);
+  });
+
   it("blank/overexposed image → low confidence, re-photograph", async () => {
     const r = checkVision({
       session_id: "t",
