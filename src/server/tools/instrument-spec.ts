@@ -10,8 +10,15 @@ import "server-only";
 import type { VisionCheckType } from "@/lib/types";
 
 export interface InstrumentSpec {
-  /** Smallest readable increment. Burettes are read to half a graduation. */
-  granularity: number;
+  /**
+   * Smallest readable increment, for instruments with real fixed graduation
+   * marks — a burette has a physical line every 0.1 mL, so a reading between
+   * marks is genuinely impossible. Omitted for instruments with no such
+   * marks: a gel band's size is read by log-linear interpolation against a
+   * ladder, so a value that falls *between* ladder rungs is the normal,
+   * expected case, not a violation — there is no fixed increment to snap to.
+   */
+  granularity?: number;
   /** Physical range of the scale. */
   min: number;
   max: number;
@@ -34,7 +41,15 @@ const BURETTE_50ML: InstrumentSpec = {
 };
 
 const GEL_BAND: InstrumentSpec = {
-  granularity: 1,
+  // No granularity: unlike a burette's fixed graduation marks, a gel band's
+  // size comes from interpolating its migration distance against a ladder on
+  // a log scale — landing between two ladder rungs (e.g. 1200 bp, between the
+  // 1000 and 1500 rungs) is the ordinary, expected outcome of that method, not
+  // evidence the model invented a value. Claiming a fake granularity here
+  // would flag normal readings as "impossible" while never catching the
+  // failure mode that's actually real for gels: a size outside the range this
+  // agarose concentration can resolve (below), or wildly discordant repeats
+  // (concordance below).
   min: 50,
   max: 20_000,
   unit: "bp",

@@ -42,3 +42,18 @@ describe("checkPhysicalConstraints — replicate concordance", () => {
     expect(discordant).toBeUndefined();
   });
 });
+
+describe("checkPhysicalConstraints — granularity", () => {
+  it("flags a burette reading that falls between its real 0.05 mL graduations", () => {
+    const result = checkPhysicalConstraints(24.37, "burette_reading", [], 5, "acid-base-titration");
+    expect(result.violations.find((v) => v.code === "impossible_granularity")).toBeDefined();
+  });
+
+  it("never flags a gel-band reading for granularity, however far between round numbers — a fragment interpolated against a ladder legitimately lands off any fixed increment", () => {
+    for (const reading of [1200, 1237, 6543, 9999, 51]) {
+      const result = checkPhysicalConstraints(reading, "gel_band", [], 6, "gel-electrophoresis");
+      expect(result.violations.find((v) => v.code === "impossible_granularity")).toBeUndefined();
+      expect(result.snappedReading).toBe(reading);
+    }
+  });
+});

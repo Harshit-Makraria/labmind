@@ -315,6 +315,15 @@ app.post("/vision/check", async (c) => {
   // a single-session scope could never catch the more realistic cheating
   // mode of two students photographing the same physical setup.
   const fp = await fingerprint(body.image_base64);
+  if (!fp && body.session_id) {
+    // fingerprint() already console.error's the underlying decode failure —
+    // this is the signal that the duplicate-photo guard was silently SKIPPED
+    // for this submission, which is otherwise invisible to the instructor.
+    // An unreadable/corrupt image is exactly the kind of malformed upload
+    // that could otherwise slip past the cheating check unnoticed.
+    console.warn(`[DUPLICATE-GUARD] session=${body.session_id} step=${body.step_number} — image fingerprint failed, duplicate check skipped for this submission`);
+    recordTrace("vision_tool", `step ${body.step_number} fingerprint`, "duplicate-photo guard skipped — image could not be fingerprinted", Date.now() - t0, 0);
+  }
   if (fp && body.session_id) {
     const priorImages = await db.verificationEntry.findMany({
       where: labRow?.instructorCode

@@ -76,15 +76,22 @@ export function checkPhysicalConstraints(
   // ── 2. Granularity ──────────────────────────────────────────────────
   // Burettes are graduated every 0.1 mL and read to 0.05. A value like 24.37
   // corresponds to no physical mark, so the model interpolated or invented it.
-  const steps = reading / spec.granularity;
-  const snapped = round2(Math.round(steps) * spec.granularity);
-  const offBy = Math.abs(reading - snapped);
-  if (offBy > spec.granularity * 0.2) {
-    violations.push({
-      code: "impossible_granularity",
-      severity: "soft",
-      message: `${reading} ${spec.unit} falls between graduations — this instrument reads in steps of ${spec.granularity} ${spec.unit}. Recorded as ${snapped}.`,
-    });
+  // Only instruments with real fixed graduation marks declare a granularity
+  // (see InstrumentSpec) — a gel band, read by interpolation against a
+  // ladder, has none, so this check is skipped entirely for it rather than
+  // applying a fake increment that would never actually catch anything.
+  let snapped = round2(reading);
+  if (spec.granularity) {
+    const steps = reading / spec.granularity;
+    snapped = round2(Math.round(steps) * spec.granularity);
+    const offBy = Math.abs(reading - snapped);
+    if (offBy > spec.granularity * 0.2) {
+      violations.push({
+        code: "impossible_granularity",
+        severity: "soft",
+        message: `${reading} ${spec.unit} falls between graduations — this instrument reads in steps of ${spec.granularity} ${spec.unit}. Recorded as ${snapped}.`,
+      });
+    }
   }
 
   // ── 3. Continuity against the student's own earlier readings ────────
