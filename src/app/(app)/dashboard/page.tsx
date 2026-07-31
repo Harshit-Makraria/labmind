@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/data-states";
-import { api } from "@/lib/api-client";
+import { api, isForbidden } from "@/lib/api-client";
 import type { SessionSummary } from "@/lib/types";
 
 const UNLOCK_KEY = "labmind:instructor";
@@ -74,11 +74,12 @@ function PasscodeGate({ onUnlock }: { onUnlock: () => void }) {
 
 function Console() {
   const [selected, setSelected] = useState<string | null>(null);
-  const { data: sessions, isError, isPaused, refetch } = useQuery({ queryKey: ["sessions"], queryFn: api.dashboardSessions, refetchInterval: 4000 });
+  const { data: sessions, isError, isPaused, error, failureReason, refetch } = useQuery({ queryKey: ["sessions"], queryFn: api.dashboardSessions, refetchInterval: 4000 });
   const list = sessions ?? [];
 
   if (isError || isPaused) {
-    return <ErrorState title="Couldn't load the live cohort" onRetry={() => refetch()} offline={isPaused} />;
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
+    return <ErrorState title="Couldn't load the live cohort" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
   }
 
   const completed = list.filter((s) => s.status === "completed").length;

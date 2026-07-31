@@ -5,6 +5,7 @@ import { Bot, CheckCircle2, Eye, EyeOff, FlaskConical, Key, RefreshCw, Save, XCi
 import { useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 
 type Provider = "auto" | "claude" | "openai" | "gemini" | "demo";
 type CatalogProvider = "openai" | "gemini" | "claude";
@@ -63,13 +64,9 @@ const PROVIDERS: { value: Provider; label: string; description: string }[] = [
 
 export default function SettingsPage() {
   const qc = useQueryClient();
-  const { data, isLoading, isError, isPaused, refetch } = useQuery<LlmStatus>({
+  const { data, isLoading, isError, isPaused, error, failureReason, refetch } = useQuery<LlmStatus>({
     queryKey: ["settings-llm"],
-    queryFn: async () => {
-      const res = await fetch("/api/settings/llm");
-      if (!res.ok) throw new Error(`Failed to load settings: ${res.status}`);
-      return res.json();
-    },
+    queryFn: () => fetchJson<LlmStatus>("/api/settings/llm"),
   });
 
   const [provider, setProvider] = useState<Provider | null>(null);
@@ -145,9 +142,10 @@ export default function SettingsPage() {
   }
 
   if (isError || isPaused) {
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
     return (
       <div className="mx-auto max-w-2xl p-6">
-        <ErrorState title="Couldn't load AI settings" onRetry={() => refetch()} offline={isPaused} />
+        <ErrorState title="Couldn't load AI settings" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />
       </div>
     );
   }

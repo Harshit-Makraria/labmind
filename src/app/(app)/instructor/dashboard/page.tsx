@@ -5,39 +5,42 @@ import { useState } from "react";
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Eye, FlaskConical, PlusCircle, Users } from "lucide-react";
 import Link from "next/link";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { InstructorSession, SessionSummary } from "@/lib/types";
-
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
-  return res.json();
-}
 
 export default function InstructorDashboard() {
   const [filterRequire, setFilterRequire] = useState(false);
-  const { data: instrSessions, isError: sessionsErrored, isPaused: sessionsPaused, refetch: refetchSessions } = useQuery<InstructorSession[]>({
+  const { data: instrSessions, isError: sessionsErrored, isPaused: sessionsPaused, error: sessionsError, failureReason: sessionsFailureReason, refetch: refetchSessions } = useQuery<InstructorSession[]>({
     queryKey: ["instructor-sessions"],
-    queryFn: () => getJson("/api/instructor/sessions"),
+    queryFn: () => fetchJson<InstructorSession[]>("/api/instructor/sessions"),
     refetchInterval: 5000,
   });
-  const { data: students, isError: studentsErrored, isPaused: studentsPaused, refetch: refetchStudents } = useQuery<SessionSummary[]>({
+  const { data: students, isError: studentsErrored, isPaused: studentsPaused, error: studentsError, failureReason: studentsFailureReason, refetch: refetchStudents } = useQuery<SessionSummary[]>({
     queryKey: ["sessions"],
-    queryFn: () => getJson("/api/dashboard/sessions"),
+    queryFn: () => fetchJson<SessionSummary[]>("/api/dashboard/sessions"),
     refetchInterval: 5000,
   });
   const { data: verifyList } = useQuery<{ length: number }>({
     queryKey: ["verify-count"],
-    queryFn: () => getJson("/api/instructor/verify?status=pending"),
+    queryFn: () => fetchJson("/api/instructor/verify?status=pending"),
     refetchInterval: 4000,
   });
 
   if (sessionsErrored || studentsErrored || sessionsPaused || studentsPaused) {
+    // A genuinely non-ok response (401/403) can still leave TanStack Query in
+    // fetchStatus "paused"/status "pending" rather than settling to isError —
+    // observed with networkMode:"online" retries — so isError/error alone
+    // aren't reliable here. failureReason holds the real error from the last
+    // attempt regardless of that paused state, so check it too.
+    const forbidden = isForbidden(sessionsError) || isForbidden(studentsError)
+      || isForbidden(sessionsFailureReason) || isForbidden(studentsFailureReason);
     return (
       <ErrorState
         title="Couldn't load your dashboard"
         message="Sessions or student data failed to load. Student devices keep recording locally regardless."
         onRetry={() => { refetchSessions(); refetchStudents(); }}
-        offline={sessionsPaused || studentsPaused}
+        offline={!forbidden && (sessionsPaused || studentsPaused)}
+        forbidden={forbidden}
       />
     );
   }

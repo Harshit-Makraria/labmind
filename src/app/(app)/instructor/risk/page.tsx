@@ -5,13 +5,8 @@ import { AlertTriangle, ChevronRight, Gauge, ShieldCheck, Timer, Users } from "l
 import Link from "next/link";
 import { useState } from "react";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { InstructorSession, RiskAssessment } from "@/lib/types";
-
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
-  return res.json();
-}
 
 const BAND: Record<RiskAssessment["band"], { bg: string; fg: string; label: string }> = {
   high:     { bg: "var(--color-danger)",  fg: "#fff", label: "High" },
@@ -25,14 +20,14 @@ export default function RiskPage() {
 
   const { data: sessions = [] } = useQuery<InstructorSession[]>({
     queryKey: ["instructor-sessions"],
-    queryFn: () => getJson("/api/instructor/sessions"),
+    queryFn: () => fetchJson<InstructorSession[]>("/api/instructor/sessions"),
   });
 
   const active = code || sessions[0]?.code || "";
 
-  const { data: students = [], isLoading, isError, isPaused, refetch } = useQuery<RiskAssessment[]>({
+  const { data: students = [], isLoading, isError, isPaused, error, failureReason, refetch } = useQuery<RiskAssessment[]>({
     queryKey: ["risk", active],
-    queryFn: () => getJson(`/api/instructor/sessions/${active}/risk`),
+    queryFn: () => fetchJson<RiskAssessment[]>(`/api/instructor/sessions/${active}/risk`),
     enabled: !!active,
     refetchInterval: 5000,
   });
@@ -40,7 +35,8 @@ export default function RiskPage() {
   const needsAttention = students.filter((s) => s.band === "high" || s.band === "elevated");
 
   if (isError || isPaused) {
-    return <ErrorState title="Couldn't load risk data" onRetry={() => refetch()} offline={isPaused} />;
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
+    return <ErrorState title="Couldn't load risk data" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
   }
 
   return (

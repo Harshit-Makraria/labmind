@@ -4,13 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock, Loader2, Lock, ShieldAlert, Timer, TriangleAlert } from "lucide-react";
 import { use } from "react";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { ChainVerification, ChainedEvent, PacingReport } from "@/lib/types";
-
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
-  return res.json();
-}
 
 const VERDICT: Record<PacingReport["verdict"], { color: string; label: string }> = {
   no_data:            { color: "var(--color-muted)",   label: "Not enough data yet" },
@@ -30,14 +25,14 @@ function fmt(seconds: number | null): string {
 export default function IntegrityPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
 
-  const { data: pacing, isLoading, isError, isPaused, refetch } = useQuery<PacingReport>({
+  const { data: pacing, isLoading, isError, isPaused, error, failureReason, refetch } = useQuery<PacingReport>({
     queryKey: ["pacing", sessionId],
-    queryFn: () => getJson(`/api/lab/${sessionId}/pacing`),
+    queryFn: () => fetchJson<PacingReport>(`/api/lab/${sessionId}/pacing`),
   });
 
   const { data: audit } = useQuery<{ chain: ChainedEvent[]; verification: ChainVerification; student_name: string }>({
     queryKey: ["audit", sessionId],
-    queryFn: () => getJson(`/api/lab/${sessionId}/audit`),
+    queryFn: () => fetchJson(`/api/lab/${sessionId}/audit`),
   });
 
   if (isLoading) {
@@ -49,7 +44,8 @@ export default function IntegrityPage({ params }: { params: Promise<{ sessionId:
   }
 
   if (isError || isPaused) {
-    return <ErrorState title="Couldn't load timing integrity" onRetry={() => refetch()} offline={isPaused} />;
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
+    return <ErrorState title="Couldn't load timing integrity" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
   }
 
   if (!pacing || !Array.isArray(pacing.steps)) {

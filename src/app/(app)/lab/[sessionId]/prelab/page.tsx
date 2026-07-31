@@ -6,6 +6,7 @@ import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { PrelabQuiz, QuizResult } from "@/server/tools/prelab-quiz";
 
 export default function PrelabPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -14,13 +15,9 @@ export default function PrelabPage({ params }: { params: Promise<{ sessionId: st
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [result, setResult] = useState<QuizResult | null>(null);
 
-  const { data: quiz, isLoading, isError, isPaused, refetch } = useQuery<PrelabQuiz>({
+  const { data: quiz, isLoading, isError, isPaused, error, failureReason, refetch } = useQuery<PrelabQuiz>({
     queryKey: ["prelab", sessionId],
-    queryFn: async () => {
-      const res = await fetch(`/api/lab/${sessionId}/prelab`);
-      if (!res.ok) throw new Error(`Failed to load quiz: ${res.status}`);
-      return res.json();
-    },
+    queryFn: () => fetchJson<PrelabQuiz>(`/api/lab/${sessionId}/prelab`),
   });
 
   const submit = useMutation({
@@ -57,9 +54,10 @@ export default function PrelabPage({ params }: { params: Promise<{ sessionId: st
   );
 
   if (isError || isPaused) {
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
     return (
       <div className="mx-auto max-w-xl py-4">
-        <ErrorState title="Couldn't load the pre-lab quiz" onRetry={() => refetch()} offline={isPaused} />
+        <ErrorState title="Couldn't load the pre-lab quiz" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />
       </div>
     );
   }

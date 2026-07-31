@@ -9,7 +9,7 @@ interface MetaResponse {
   keys_exhausted: boolean;
 }
 
-export function DemoBanner() {
+export function DemoBanner({ role }: { role?: "instructor" | "student" | null }) {
   const [dismissed, setDismissed] = useState(false);
   const { data } = useQuery<MetaResponse>({
     queryKey: ["meta"],
@@ -21,6 +21,12 @@ export function DemoBanner() {
   if (!data?.demo || dismissed) return null;
 
   const exhausted = data.keys_exhausted;
+  // /settings is instructor-only (INSTRUCTOR_PREFIXES in route.ts) — telling
+  // a student to "go to AI Settings" sent them to a page that 403s on every
+  // fetch it makes. Only instructors can actually act on this instruction.
+  const cta = role === "instructor"
+    ? <>Go to <strong>AI Settings</strong> {exhausted ? "to add your own key or switch to Demo mode." : "to add an API key for real AI analysis."}</>
+    : <>Ask your instructor to add an API key in AI Settings for real AI analysis.</>;
 
   return (
     <div
@@ -35,12 +41,12 @@ export function DemoBanner() {
         {exhausted ? (
           <>
             <strong>Paid API key limit reached.</strong> AI checks are simulated. All other features (sessions, codes, instructor console) work normally.
-            {" "}Go to <strong>AI Settings</strong> to add your own key or switch to Demo mode.
+            {" "}{cta}
           </>
         ) : (
           <>
             <strong>Demo mode.</strong> AI checks are simulated — session codes, instructor console, and all features still work.
-            {" "}Go to <strong>AI Settings</strong> to add an API key for real AI analysis.
+            {" "}{cta}
           </>
         )}
       </p>

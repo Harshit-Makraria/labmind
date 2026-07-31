@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, type LucideIcon, RefreshCw, ShieldCheck, WifiOff } from "lucide-react";
+import { AlertTriangle, type LucideIcon, Lock, RefreshCw, ShieldCheck, WifiOff } from "lucide-react";
 
 /**
  * The three states every data view needs (per the design spec): loading,
@@ -21,12 +21,35 @@ export function ErrorState({
    * spotty lab WiFi hits this exact state, not just a dropped connection.
    */
   offline,
+  /**
+   * True for a genuine 401/403 — no amount of retrying or waiting for a
+   * connection fixes this, so it must never render as the "offline" state
+   * above (which explicitly tells the user retrying isn't necessary because
+   * it'll resolve on its own — false and actively misleading for a
+   * permissions problem).
+   */
+  forbidden,
 }: {
   title?: string;
   message?: string;
   onRetry?: () => void;
   offline?: boolean;
+  forbidden?: boolean;
 }) {
+  if (forbidden) {
+    return (
+      <div className="anim-fade-up rounded-[var(--radius-card)] border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/6 p-5">
+        <p className="flex items-center gap-2 font-bold text-[var(--color-danger)]">
+          <Lock size={17} className="shrink-0" /> Access denied
+        </p>
+        <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-navy)]">
+          You don&apos;t have permission to view this — it may belong to a different instructor account,
+          or your session may have expired. Retrying won&apos;t change that; try signing in again.
+        </p>
+      </div>
+    );
+  }
+
   if (offline) {
     return (
       <div className="anim-fade-up rounded-[var(--radius-card)] border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 p-5">

@@ -9,13 +9,8 @@ import Link from "next/link";
 import { use, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { SessionSummary, InstructorSession } from "@/lib/types";
-
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
-  return res.json();
-}
 
 const STATUS_COLOR: Record<string, string> = {
   active: "bg-[var(--color-brand)] text-white",
@@ -33,14 +28,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
   const qc = useQueryClient();
   const [confirming, setConfirming] = useState(false);
 
-  const { data: session, isError: sessionErrored, isPaused: sessionPaused, refetch: refetchSession } = useQuery<InstructorSession>({
+  const { data: session, isError: sessionErrored, isPaused: sessionPaused, error: sessionError, failureReason: sessionFailureReason, refetch: refetchSession } = useQuery<InstructorSession>({
     queryKey: ["instructor-session", code],
-    queryFn: () => getJson(`/api/instructor/sessions/${code}`),
+    queryFn: () => fetchJson<InstructorSession>(`/api/instructor/sessions/${code}`),
   });
 
-  const { data: students = [], dataUpdatedAt, isError: studentsErrored, isPaused: studentsPaused, refetch: refetchStudents } = useQuery<SessionSummary[]>({
+  const { data: students = [], dataUpdatedAt, isError: studentsErrored, isPaused: studentsPaused, error: studentsError, failureReason: studentsFailureReason, refetch: refetchStudents } = useQuery<SessionSummary[]>({
     queryKey: ["session-students", code],
-    queryFn: () => getJson(`/api/instructor/sessions/${code}/students`),
+    queryFn: () => fetchJson<SessionSummary[]>(`/api/instructor/sessions/${code}/students`),
     refetchInterval: 3000,
   });
 
@@ -77,11 +72,14 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
   })();
 
   if (sessionErrored || studentsErrored || sessionPaused || studentsPaused) {
+    const forbidden = isForbidden(sessionError) || isForbidden(studentsError)
+      || isForbidden(sessionFailureReason) || isForbidden(studentsFailureReason);
     return (
       <ErrorState
         title="Couldn't load this session"
         onRetry={() => { refetchSession(); refetchStudents(); }}
-        offline={sessionPaused || studentsPaused}
+        offline={!forbidden && (sessionPaused || studentsPaused)}
+        forbidden={forbidden}
       />
     );
   }

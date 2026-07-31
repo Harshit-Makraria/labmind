@@ -4,16 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, FileText, Filter } from "lucide-react";
 import { useState } from "react";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { SessionSummary } from "@/lib/types";
 
 export default function ReportsPage() {
-  const { data: sessions, isError, isPaused, refetch } = useQuery<SessionSummary[]>({
+  const { data: sessions, isError, isPaused, error, failureReason, refetch } = useQuery<SessionSummary[]>({
     queryKey: ["sessions"],
-    queryFn: async () => {
-      const res = await fetch("/api/dashboard/sessions", { cache: "no-store" });
-      if (!res.ok) throw new Error(`Failed: ${res.status}`);
-      return res.json();
-    },
+    queryFn: () => fetchJson<SessionSummary[]>("/api/dashboard/sessions"),
   });
   const [filter, setFilter] = useState({ student: "", experiment: "" });
 
@@ -23,7 +20,8 @@ export default function ReportsPage() {
   );
 
   if (isError || isPaused) {
-    return <ErrorState title="Couldn't load reports" onRetry={() => refetch()} offline={isPaused} />;
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
+    return <ErrorState title="Couldn't load reports" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
   }
 
   return (

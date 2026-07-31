@@ -90,6 +90,22 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
     ? allFilled && mean !== null
     : value !== "" && !Number.isNaN(Number.parseFloat(value));
 
+  // Deep-linking straight to /result (session expired, sessionStorage cleared,
+  // a stale bookmark) previously fell through to a generic, contextless form
+  // with no experiment name and the wrong input mode — matching the guard
+  // PhotoCapture.tsx and the step-card page already use for the same case.
+  if (!session) {
+    return (
+      <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
+        <Loader2 className="animate-spin" />
+        <p>Loading your lab session…</p>
+        <button onClick={() => router.push("/library")} className="text-sm text-[var(--color-brand)] underline">
+          Choose an experiment
+        </button>
+      </div>
+    );
+  }
+
   if (result) {
     const theme = THEME[result.severity];
     return (

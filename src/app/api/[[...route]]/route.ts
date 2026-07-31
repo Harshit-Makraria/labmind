@@ -515,7 +515,13 @@ app.post("/results/interpret", async (c) => {
   let experimentId = body.experiment_id;
   if (body.session_id) {
     const row = await db.labSession.findUnique({ where: { id: body.session_id }, select: { experimentId: true } });
-    if (row) experimentId = row.experimentId;
+    // A session_id that doesn't resolve (deleted/expired session, stale deep
+    // link) must not silently fall back to a default experiment — that
+    // previously graded e.g. a gel-electrophoresis reading against
+    // titration's theoretical value and returned a nonsense diagnosis as an
+    // authoritative 200 result.
+    if (!row) return c.json({ error: "Session not found" }, 404);
+    experimentId = row.experimentId;
   }
   const theoreticalValue = getExperiment(experimentId).theoretical.value;
   const result = interpret({ ...body, experiment_id: experimentId, theoretical_value: theoreticalValue });

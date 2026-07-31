@@ -47,10 +47,31 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   return res.json() as Promise<TRes>;
 }
 
+/**
+ * Shared GET helper — throws ApiError (status attached) on a non-ok response,
+ * consistent with post() above. Exported as fetchJson so pages that need a
+ * plain GET (dashboard, risk, verify, wall, session/[code], integrity) can
+ * distinguish a real 401/403 from a transport failure instead of duplicating
+ * a local helper that threw a bare Error with no status — which is what let
+ * a genuine "Forbidden" response render as "You're offline" (that copy is
+ * driven by TanStack Query's isPaused, not by inspecting the actual error).
+ */
 async function get<TRes>(path: string): Promise<TRes> {
   const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(text); } catch { /* non-JSON error body */ }
+    throw new ApiError((parsed.error as string) ?? `${path} failed: ${res.status}`, res.status, parsed);
+  }
   return res.json() as Promise<TRes>;
+}
+
+export const fetchJson = get;
+
+/** True for a genuine 401/403 — never fixed by retrying, unlike a network blip. */
+export function isForbidden(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
 }
 
 export const api = {

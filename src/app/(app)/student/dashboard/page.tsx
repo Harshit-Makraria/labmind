@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { loadSession } from "@/hooks/useSession";
 import { ErrorState } from "@/components/ui/data-states";
-import { api } from "@/lib/api-client";
+import { api, fetchJson, isForbidden } from "@/lib/api-client";
 import type { HistoryEntry } from "@/lib/types";
 
 export default function StudentDashboard() {
@@ -127,14 +127,12 @@ export default function StudentDashboard() {
  * sessionStorage — so their record follows them across devices.
  */
 function PastExperiments() {
-  const { data: history = [], isLoading, isError, isPaused, refetch } = useQuery<HistoryEntry[]>({
+  const { data: history = [], isLoading, isError, isPaused, error, failureReason, refetch } = useQuery<HistoryEntry[]>({
     queryKey: ["student-history"],
     queryFn: async () => {
-      const res = await fetch("/api/student/history", { cache: "no-store" });
       // A failed fetch must not silently resolve to an empty array — that
       // reads as "you have no history", not "this failed to load".
-      if (!res.ok) throw new Error(`Failed to load history: ${res.status}`);
-      const json = await res.json();
+      const json = await fetchJson<HistoryEntry[]>("/api/student/history");
       return Array.isArray(json) ? json : [];
     },
   });
@@ -148,7 +146,8 @@ function PastExperiments() {
   }
 
   if (isError || isPaused) {
-    return <ErrorState title="Couldn't load your experiments" onRetry={() => refetch()} offline={isPaused} />;
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
+    return <ErrorState title="Couldn't load your experiments" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
   }
 
   if (history.length === 0) {

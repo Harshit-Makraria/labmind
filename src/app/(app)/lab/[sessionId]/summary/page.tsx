@@ -5,6 +5,7 @@ import { ArrowRight, BookOpen, Brain, Lightbulb, Loader2, Star, Target, Trophy, 
 import Link from "next/link";
 import { use } from "react";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { LearningSummary } from "@/lib/types";
 
 interface Benchmark { class_avg_deviation: number | null; your_deviation: number | null; percentile: number | null; peer_count: number; }
@@ -12,25 +13,22 @@ interface Benchmark { class_avg_deviation: number | null; your_deviation: number
 export default function SummaryPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
 
-  const { data, isError, isPaused, refetch } = useQuery<LearningSummary>({
+  const { data, isError, isPaused, error, failureReason, refetch } = useQuery<LearningSummary>({
     queryKey: ["summary", sessionId],
-    queryFn: async () => {
-      const res = await fetch(`/api/lab/${sessionId}/summary`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Failed to load summary: ${res.status}`);
-      return res.json();
-    },
+    queryFn: () => fetchJson<LearningSummary>(`/api/lab/${sessionId}/summary`),
   });
 
   const { data: benchmark } = useQuery<Benchmark>({
     queryKey: ["benchmark", sessionId],
-    queryFn: async () => (await fetch(`/api/lab/${sessionId}/benchmark`)).json(),
+    queryFn: () => fetchJson<Benchmark>(`/api/lab/${sessionId}/benchmark`),
     enabled: !!data,
   });
 
   if (isError || isPaused) {
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
     return (
       <div className="mx-auto max-w-2xl py-4">
-        <ErrorState title="Couldn't load your summary" onRetry={() => refetch()} offline={isPaused} />
+        <ErrorState title="Couldn't load your summary" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />
       </div>
     );
   }

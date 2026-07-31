@@ -27,12 +27,16 @@ const INSTRUCTOR_NAV: NavEntry[] = [
   { href: "/settings", label: "AI Settings",                     icon: Settings },
 ];
 
+// No "AI Settings" entry here — /api/settings/* is instructor-only
+// (INSTRUCTOR_PREFIXES in route.ts), so a student following that link would
+// hit a guaranteed 403 on every fetch the page makes. Provider/API-key
+// configuration is an app-wide, instructor/admin-level setting, not
+// something a student account can or should touch.
 const STUDENT_NAV: NavEntry[] = [
   { href: "/student/dashboard", label: "Dashboard",          icon: LayoutDashboard },
   { href: "/student/join",      label: "Join Session",       icon: FlaskConical },
   { href: "/library",           label: "Experiment Library", icon: Microscope },
   { href: "/assistant",         label: "Ask LabMind",        icon: Bot },
-  { href: "/settings",          label: "AI Settings",        icon: Settings },
 ];
 
 function titleFor(path: string): string {
@@ -167,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="main-pane">
         <Topbar title={titleFor(pathname)} role={role} meta={meta} onMenu={() => setMobileNavOpen(true)} />
-        <DemoBanner />
+        <DemoBanner role={role} />
         {/* Keying on pathname replays the entrance animation on every navigation,
             so moving between pages reads as a deliberate transition rather than
             an abrupt swap. */}

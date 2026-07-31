@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Flag, Target, XCircle } from "lucide-react
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import type { AccuracyReport, VerificationEntry } from "@/lib/types";
 
@@ -12,12 +13,10 @@ export default function VerifyPage() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { data, isError, isPaused, refetch } = useQuery<VerificationEntry[]>({
+  const { data, isError, isPaused, error, failureReason, refetch } = useQuery<VerificationEntry[]>({
     queryKey: ["verifications"],
     queryFn: async () => {
-      const res = await fetch("/api/instructor/verify", { cache: "no-store" });
-      if (!res.ok) throw new Error(`Failed to load verifications: ${res.status}`);
-      const json = await res.json();
+      const json = await fetchJson<VerificationEntry[]>("/api/instructor/verify");
       return Array.isArray(json) ? json : [];
     },
     refetchInterval: 4000,
@@ -38,7 +37,13 @@ export default function VerifyPage() {
 
   const { data: accuracy } = useQuery<AccuracyReport>({
     queryKey: ["vision-accuracy"],
-    queryFn: async () => (await fetch("/api/instructor/accuracy", { cache: "no-store" })).json(),
+    // Was a bare fetch().json() with no res.ok check — a 403 response body
+    // ({ error: "..." }) got treated as a real AccuracyReport, and
+    // AccuracyCard's report.byConfidence.map() crashed the whole page on
+    // undefined. fetchJson throws instead, so `accuracy` just stays
+    // undefined on failure — AccuracyCard already renders a graceful
+    // fallback for that case.
+    queryFn: () => fetchJson<AccuracyReport>("/api/instructor/accuracy"),
     refetchInterval: 10_000,
   });
 
@@ -58,7 +63,8 @@ export default function VerifyPage() {
     : 0;
 
   if (isError || isPaused) {
-    return <ErrorState title="Couldn't load the verification queue" onRetry={() => refetch()} offline={isPaused} />;
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
+    return <ErrorState title="Couldn't load the verification queue" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
   }
 
   return (

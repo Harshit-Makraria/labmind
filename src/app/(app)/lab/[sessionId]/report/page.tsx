@@ -4,24 +4,22 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, Loader2, Share2 } from "lucide-react";
 import { use } from "react";
 import { ErrorState } from "@/components/ui/data-states";
+import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { LabReport } from "@/lib/types";
 
 export default function ReportPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
 
-  const { data: report, isError, isPaused, refetch } = useQuery<LabReport>({
+  const { data: report, isError, isPaused, error, failureReason, refetch } = useQuery<LabReport>({
     queryKey: ["report", sessionId],
-    queryFn: async () => {
-      const res = await fetch(`/api/lab/${sessionId}/report`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Failed to load report: ${res.status}`);
-      return res.json();
-    },
+    queryFn: () => fetchJson<LabReport>(`/api/lab/${sessionId}/report`),
   });
 
   if (isError || isPaused) {
+    const forbidden = isForbidden(error) || isForbidden(failureReason);
     return (
       <div className="mx-auto max-w-2xl py-4">
-        <ErrorState title="Couldn't load this report" onRetry={() => refetch()} offline={isPaused} />
+        <ErrorState title="Couldn't load this report" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />
       </div>
     );
   }
