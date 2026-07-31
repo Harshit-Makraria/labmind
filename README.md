@@ -89,6 +89,12 @@ This is the part a technical judge will probe, so it's built to hold up:
     number or reason behind it. Points #1–4 above are true of the backend either way; this is
     what makes them visible and falsifiable to a judge in the room, not just asserted in this
     README.
+12. **A genuine pre-lab-hypothesis-vs-actual-result comparison, not a decorative textbox.**
+    Students write a prediction before starting ("I predict the concentration is ≈0.1 mol/L
+    because…"); the server extracts the number from that free text and, once a result is in,
+    grades how close the prediction was against what was actually measured — "Nailed it",
+    "Close", or "Off" with the real numbers, not the theoretical textbook value. A non-numeric
+    hypothesis still gets an honest verdict instead of a fabricated one.
 
 ## Demo mode (no API key needed)
 

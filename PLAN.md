@@ -48,9 +48,17 @@ brief "in-memory store" phase that followed it, are both historical context only
   genuinely fail a numeric reading, so the retake/needs-review/manual-override flows are
   demoable with zero API key. Photo uploads accept any pixel dimension — the quality gate
   judges sharpness/brightness, not size.
-- **Build and tests are green** (`pnpm build` exits 0; `pnpm test` — vitest — covers vision,
-  safety, the agent loop, result interpretation, the physical-constraints layer, the audit
-  chain, and per-experiment quiz content).
+- **The verification pipeline shows its work.** Every photo submission renders a live "How
+  LabMind checked this photo" breakdown (image quality, cross-provider agreement, self-
+  consistency, physical-constraints result, tolerance match) instead of asking a judge to trust
+  a black-box confidence number.
+- **Pre-lab hypothesis vs. actual result is a real comparison, not a decorative textbox.**
+  The student's numeric prediction is graded against what they actually measured once a result
+  is in — surfaced at the top of the summary page.
+- **Build and tests are green** (`pnpm build` exits 0; `pnpm test` — vitest, 82+ tests — covers
+  vision, safety, the agent loop, result interpretation, the physical-constraints layer, the
+  audit chain, per-experiment quiz content, image fingerprinting, and the hypothesis-verdict
+  logic).
 
 Run: `pnpm install`, set `DATABASE_URL`/`DIRECT_URL`/`AUTH_SECRET`/`AUTH_URL` in `.env.local`,
 `npx prisma migrate deploy`, then `pnpm dev` → http://localhost:3000. Deploy: push to GitHub →
