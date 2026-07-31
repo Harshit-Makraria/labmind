@@ -119,6 +119,40 @@ function fileToParts(file: File): Promise<{ dataUrl: string; base64: string }> {
   });
 }
 
+/**
+ * A modern phone's full-resolution photo is commonly 5-15MB — as base64 JSON
+ * that's 7-20MB, which fails on a typical serverless request-body limit with
+ * a bare "413" the student can't act on (retake repeats the identical
+ * failure, since resolution never changes). Downscale to a generous max
+ * dimension and re-encode as JPEG before it ever leaves the device — plenty
+ * of resolution for reading graduation marks, a fraction of the bytes.
+ */
+function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise<{ dataUrl: string; base64: string }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("canvas unavailable")); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+      resolve({ dataUrl, base64: dataUrl.split(",")[1] ?? "" });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("could not decode image")); };
+    img.src = url;
+  });
+}
+
 export function PhotoCapture({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const { session, setStepIndex } = useSession(sessionId);
@@ -202,15 +236,25 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
 
   async function onPick(file: File | undefined) {
     if (!file) return;
-    const { dataUrl, base64: b64 } = await fileToParts(file);
+    try {
+      // Downscale/re-encode first; if that fails for any reason (an unusual
+      // format the canvas can't decode), fall back to the raw file rather
+      // than blocking the capture entirely.
+      const { dataUrl, base64: b64 } = await compressImage(file).catch(() => fileToParts(file));
 
-    // Any dimension is accepted here — the server's quality gate judges
-    // sharpness/brightness (not size), and the AI itself reports low
-    // confidence for a genuinely unreadable photo rather than the client
-    // pre-emptively blocking it on a pixel-count guess.
-    setPreview(dataUrl);
-    setBase64(b64);
-    setResult(null);
+      // Any dimension is accepted here — the server's quality gate judges
+      // sharpness/brightness (not size), and the AI itself reports low
+      // confidence for a genuinely unreadable photo rather than the client
+      // pre-emptively blocking it on a pixel-count guess.
+      setPreview(dataUrl);
+      setBase64(b64);
+      setResult(null);
+    } catch {
+      // Both the compressed and raw reads failed — a corrupt or unreadable
+      // file. Previously this threw an unhandled rejection with zero
+      // feedback, leaving the capture button looking frozen.
+      toast.error("Couldn't read that photo — try a different one.");
+    }
   }
 
   const canOverride = result?.manual_override_available && result?.verification_status === "failed";
