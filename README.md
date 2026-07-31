@@ -95,6 +95,13 @@ This is the part a technical judge will probe, so it's built to hold up:
     grades how close the prediction was against what was actually measured — "Nailed it",
     "Close", or "Off" with the real numbers, not the theoretical textbook value. A non-numeric
     hypothesis still gets an honest verdict instead of a fabricated one.
+13. **"Here's exactly where LabMind looked" — the vision pipeline's own bounding box, drawn on
+    the student's own photo.** The two-pass zoom-and-crop stage (point #2) already asks the
+    model to locate the instrument before reading it; that box was previously computed and then
+    discarded once the cropped image had served its purpose. It's now returned to the client and
+    overlaid on the original photo the student submitted — a real, data-grounded visual instead
+    of a black-box verdict, and one that's immediately legible to a judge without reading any
+    copy.
 
 ## Demo mode (no API key needed)
 

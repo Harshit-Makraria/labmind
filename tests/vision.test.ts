@@ -80,6 +80,33 @@ describe("vision tool (golden dataset)", () => {
     expect(r.checks!.some((c) => !c.passed)).toBe(true);
   });
 
+  it("a passing analysis includes a located_region so the UI can overlay where LabMind looked", async () => {
+    const r = await checkVision({
+      session_id: "t",
+      step_number: 5,
+      image_base64: await buretteLikeImage(),
+      expected: { type: "burette_reading", expected_value: 24.5, tolerance: 0.1 },
+    });
+    expect(r.located_region).toBeTruthy();
+    const { x0, y0, x1, y1 } = r.located_region!;
+    for (const v of [x0, y0, x1, y1]) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+    expect(x1).toBeGreaterThan(x0);
+    expect(y1).toBeGreaterThan(y0);
+  });
+
+  it("a rejected (blurry) photo has no located_region — cropping never ran", async () => {
+    const r = await checkVision({
+      session_id: "t",
+      step_number: 5,
+      image_base64: await makeImageBase64(80, 80, { r: 255, g: 255, b: 255 }),
+      expected: { type: "burette_reading", expected_value: 24.5, tolerance: 0.1 },
+    });
+    expect(r.located_region ?? null).toBeNull();
+  });
+
   it("blank/overexposed image → low confidence, re-photograph", async () => {
     const r = checkVision({
       session_id: "t",

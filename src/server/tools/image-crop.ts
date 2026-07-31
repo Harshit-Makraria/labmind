@@ -37,6 +37,10 @@ export interface CropResult {
   imageBase64: string;
   cropped: boolean;
   reason: string;
+  /** The located box as fractions (0-1) of the ORIGINAL image — the padded
+   * region actually cropped to, so the UI can draw it on the photo the
+   * student submitted rather than the (differently-sized) cropped output. */
+  box: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
 function toBuffer(imageBase64: string): Buffer {
@@ -48,7 +52,7 @@ function toBuffer(imageBase64: string): Buffer {
 const TARGET_LONG_EDGE = 1400;
 
 export async function cropToInstrument(imageBase64: string): Promise<CropResult> {
-  const original: CropResult = { imageBase64, cropped: false, reason: "" };
+  const original: CropResult = { imageBase64, cropped: false, reason: "", box: null };
 
   try {
     const raw = await completeVision(LOCATE_SYSTEM, {
@@ -81,10 +85,11 @@ export async function cropToInstrument(imageBase64: string): Promise<CropResult>
     const height = Math.round((y1 - y0) * H);
 
     // A "crop" that keeps most of the frame buys nothing but costs a call's
-    // worth of latency — skip it and keep the original.
+    // worth of latency — skip cropping, but the model DID genuinely locate
+    // the instrument, so still surface that box for the UI overlay.
     const areaRatio = (width * height) / (W * H);
     if (width < 40 || height < 40 || areaRatio > 0.85) {
-      return { ...original, reason: `crop not useful (covers ${Math.round(areaRatio * 100)}% of frame)` };
+      return { ...original, reason: `crop not useful (covers ${Math.round(areaRatio * 100)}% of frame)`, box: { x0, y0, x1, y1 } };
     }
 
     const scale = TARGET_LONG_EDGE / Math.max(width, height);
@@ -106,6 +111,7 @@ export async function cropToInstrument(imageBase64: string): Promise<CropResult>
       imageBase64: out.toString("base64"),
       cropped: true,
       reason: `cropped to ${Math.round(areaRatio * 100)}% region, upscaled ×${scale.toFixed(1)}`,
+      box: { x0, y0, x1, y1 },
     };
   } catch (e) {
     // Cropping is an optimisation — never let it break the read.

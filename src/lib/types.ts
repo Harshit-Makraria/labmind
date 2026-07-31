@@ -140,6 +140,14 @@ export interface VisionResult {
   /** Itemised pipeline breakdown — see VisionCheckStep. Optional only for
    * backward compatibility with any caller that predates this field. */
   checks?: VisionCheckStep[];
+  /**
+   * The instrument bounding box the two-pass zoom-and-crop stage actually
+   * located, as fractions (0-1) of the ORIGINAL uploaded photo's width/height
+   * — not the cropped image. Lets the UI draw "here's exactly where LabMind
+   * looked" directly on the student's own photo. Null when cropping was
+   * skipped or the model couldn't localise the instrument.
+   */
+  located_region?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
 // ─── Safety engine ──────────────────────────────────────────────────

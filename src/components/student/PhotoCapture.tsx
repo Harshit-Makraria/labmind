@@ -153,12 +153,35 @@ function compressImage(file: File, maxDim = 1600, quality = 0.85): Promise<{ dat
   });
 }
 
+/**
+ * With `object-contain`, the rendered image is letterboxed inside its box
+ * unless the aspect ratios happen to match — so a naive percentage overlay
+ * positioned against the CONTAINER would drift from the actual image content.
+ * This computes the true rendered rect (standard object-fit:contain math) so
+ * the "where LabMind looked" box lands exactly on the photo, not the frame.
+ */
+function containedRect(containerW: number, containerH: number, naturalW: number, naturalH: number) {
+  if (!containerW || !containerH || !naturalW || !naturalH) return null;
+  const containerRatio = containerW / containerH;
+  const imageRatio = naturalW / naturalH;
+  if (imageRatio > containerRatio) {
+    const width = containerW;
+    const height = containerW / imageRatio;
+    return { left: 0, top: (containerH - height) / 2, width, height };
+  }
+  const height = containerH;
+  const width = containerH * imageRatio;
+  return { left: (containerW - width) / 2, top: 0, width, height };
+}
+
 export function PhotoCapture({ sessionId }: { sessionId: string }) {
   const router = useRouter();
   const { session, setStepIndex } = useSession(sessionId);
   const inputRef = useRef<HTMLInputElement>(null);
+  const imgWrapRef = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
+  const [renderedRect, setRenderedRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [result, setResult] = useState<VisionResult | null>(null);
   const [overrideValue, setOverrideValue] = useState("");
 
@@ -275,12 +298,39 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
         </div>
 
         {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={preview}
-            alt="Captured"
-            className="anim-scale-in max-h-72 w-full rounded-[var(--radius-btn)] bg-black/5 object-contain"
-          />
+          <div ref={imgWrapRef} className="relative max-h-72 w-full overflow-hidden rounded-[var(--radius-btn)] bg-black/5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={preview}
+              alt="Captured"
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                const container = imgWrapRef.current;
+                if (!container) return;
+                setRenderedRect(containedRect(container.clientWidth, container.clientHeight, img.naturalWidth, img.naturalHeight));
+              }}
+              className="anim-scale-in max-h-72 w-full object-contain"
+            />
+            {/* Grounded in the vision pipeline's own two-pass zoom-and-crop
+                bounding box (image-crop.ts) — not a decorative graphic. Shows
+                the student the instrument region LabMind actually located and
+                read, not just a pass/fail verdict. */}
+            {result?.located_region && renderedRect && (
+              <div
+                className="anim-fade-up pointer-events-none absolute rounded-md border-2 border-[var(--color-accent)] bg-[var(--color-accent)]/10"
+                style={{
+                  left: renderedRect.left + result.located_region.x0 * renderedRect.width,
+                  top: renderedRect.top + result.located_region.y0 * renderedRect.height,
+                  width: (result.located_region.x1 - result.located_region.x0) * renderedRect.width,
+                  height: (result.located_region.y1 - result.located_region.y0) * renderedRect.height,
+                }}
+              >
+                <span className="absolute -top-5 left-0 whitespace-nowrap rounded bg-[var(--color-accent)] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  Where LabMind looked
+                </span>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="space-y-3">
             <button

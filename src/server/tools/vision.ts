@@ -103,6 +103,20 @@ function shapeMismatch(type: VisionExpected["type"], metrics: NonNullable<Awaite
   return null;
 }
 
+/**
+ * A plausible, deterministic instrument location for demo mode — so the
+ * "here's exactly where LabMind looked" overlay is demoable with zero API
+ * key, matching the real pipeline's general shape convention (a burette is a
+ * tall centred strip; a gel is a wide band) rather than an arbitrary box.
+ */
+function demoLocatedRegion(type: VisionExpected["type"], h: number): { x0: number; y0: number; x1: number; y1: number } {
+  const jitter = (h % 7) / 100; // small deterministic variation so repeats don't look copy-pasted
+  if (type === "gel_band") {
+    return { x0: 0.08 + jitter, y0: 0.15, x1: 0.92 - jitter, y1: 0.75 };
+  }
+  return { x0: 0.32 + jitter, y0: 0.1, x1: 0.68 - jitter, y1: 0.92 };
+}
+
 async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const img = req.image_base64 ?? "";
   const expected: VisionExpected = req.expected;
@@ -143,7 +157,7 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
       qualityCheck, shapeCheck,
       { label: "Colour endpoint", passed: true, detail: "Observed colour matches the expected endpoint (demo)." },
     ];
-    return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(true, confidence), checks };
+    return { reading: null, confidence, pass: true, deviation: null, message: "Colour change endpoint confirmed (demo).", notes: "Demo mode — endpoint accepted.", attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(true, confidence), checks, located_region: demoLocatedRegion(expected.type, h) };
   }
 
   // Deterministic (same image+step always gives the same demo verdict), but
@@ -176,6 +190,7 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
     message: pass ? `Reading ${reading} ${unit} — within tolerance. ✓` : `Reading ${reading} ${unit} — outside tolerance. Re-check.`,
     notes: `Expected ${ev} ${unit}, got ${reading} ${unit} (Δ ${deviation} ${unit}). Demo mode.`,
     attempts: 1, manual_override_available: false, verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(pass, confidence), checks,
+    located_region: demoLocatedRegion(expected.type, h),
   };
 }
 
@@ -231,12 +246,14 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     };
   }
 
+  let locatedRegion: { x0: number; y0: number; x1: number; y1: number } | null = null;
   try {
     // ── Stage 2: crop to the instrument and upscale ────────────────────
     let readImage = img.includes(",") ? img.split(",", 2)[1] ?? img : img;
     if (req.expected.type !== "colour_change") {
       const crop = await cropToInstrument(readImage);
       readImage = crop.imageBase64;
+      locatedRegion = crop.box;
       console.log(`[VISION]   crop: ${crop.cropped ? "✓" : "skipped"} — ${crop.reason}`);
     }
 
@@ -409,6 +426,7 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       manual_override_available: false,
       verification_threshold: VISION_HIGH_CONFIDENCE, verification_status: verificationStatus(pass, conf),
       checks,
+      located_region: locatedRegion,
     };
 
     console.log(`[VISION] ← LIVE result  : pass=${result.pass} confidence=${result.confidence} reading=${result.reading} deviation=${result.deviation} status=${result.verification_status}`);
