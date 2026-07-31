@@ -11,13 +11,40 @@ const ALL_BADGES: Badge[] = [
   { id: "first-try",    label: "First-Try Verify",   description: "All visions passed first try",    icon: "🥇", earned: false },
 ];
 
+/**
+ * The overview page tells students LabMind will compare their pre-lab
+ * hypothesis to their actual result — this is that comparison. Extracts the
+ * first number in the hypothesis's free text (e.g. "I think it'll be around
+ * 0.1 mol/L") and checks it against what they actually measured, not just
+ * the textbook theoretical value, so the verdict is about THEIR prediction
+ * vs THEIR result.
+ */
+export function computeHypothesisVerdict(hypothesis: string | null, studentResult: number | null): string | null {
+  if (!hypothesis) return null;
+  if (studentResult === null) return null; // no result recorded yet to judge it against
+
+  const match = hypothesis.match(/-?\d+(\.\d+)?/);
+  if (!match) {
+    const quoted = hypothesis.length > 60 ? `${hypothesis.slice(0, 57)}…` : hypothesis;
+    return `You predicted "${quoted}" — no specific number to check against your measured result of ${studentResult}, but worth comparing now that you have it.`;
+  }
+
+  const predicted = Number.parseFloat(match[0]);
+  if (predicted === 0) return null; // a "0" prediction makes % difference undefined/meaningless
+
+  const diff = Math.round((Math.abs(predicted - studentResult) / Math.abs(predicted)) * 1000) / 10;
+  if (diff <= 5) return `Nailed it — you predicted ${predicted} and measured ${studentResult} (${diff}% apart). Your reasoning before the experiment held up.`;
+  if (diff <= 20) return `Close — you predicted ${predicted} and measured ${studentResult} (${diff}% apart). A reasonable estimate, worth refining next time.`;
+  return `Off — you predicted ${predicted} but measured ${studentResult} (${diff}% apart). Revisit the theory behind this experiment before your next prediction.`;
+}
+
 function computeSummary(sessionId: string, s: StoredSession | undefined): LearningSummary {
   if (!s) {
     return {
       session_id: sessionId, experiment_name: "Unknown", performance_score: 0,
       accuracy_score: 0, steps_completed: 0, steps_total: 0, skipped_steps: 0,
       safety_alerts: 0, overrides: 0, mistakes: [], concepts_learned: [],
-      improvement_suggestions: [], badges: [],
+      improvement_suggestions: [], badges: [], hypothesis: null, hypothesis_verdict: null,
     };
   }
 
@@ -78,6 +105,8 @@ function computeSummary(sessionId: string, s: StoredSession | undefined): Learni
     concepts_learned: concepts,
     improvement_suggestions: suggestions,
     badges,
+    hypothesis: s.hypothesis,
+    hypothesis_verdict: computeHypothesisVerdict(s.hypothesis, s.studentResult),
   };
 }
 

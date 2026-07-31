@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, BookOpen, Lightbulb, Loader2, Star, Target, Trophy, Users } from "lucide-react";
+import { ArrowRight, BookOpen, Brain, Lightbulb, Loader2, Star, Target, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
 import { ErrorState } from "@/components/ui/data-states";
@@ -74,6 +74,21 @@ export default function SummaryPage({ params }: { params: Promise<{ sessionId: s
           ))}
         </div>
       </div>
+
+      {/* Hypothesis vs. actual — only shown if the student wrote one before starting */}
+      {data.hypothesis && (
+        <div className="card anim-fade-up p-5">
+          <h3 className="mb-3 flex items-center gap-2 font-bold text-[var(--color-navy)]">
+            <Brain size={18} className="text-[var(--color-brand)]" /> Your hypothesis vs. your result
+          </h3>
+          <p className="mb-2 rounded-lg bg-black/[0.03] p-3 text-sm italic text-[var(--color-ink)]/80">"{data.hypothesis}"</p>
+          {data.hypothesis_verdict ? (
+            <p className="text-sm text-[var(--color-navy)]">{data.hypothesis_verdict}</p>
+          ) : (
+            <p className="text-sm text-[var(--color-muted)]">Recorded — a result is needed to compare it against.</p>
+          )}
+        </div>
+      )}
 
       {/* Badges */}
       <div className="card anim-fade-up stagger-1 p-5">

@@ -30,11 +30,19 @@ export interface StoredSession {
   reagentHistory: Reagent[];
   lastVisionPass: boolean | null;
   deviationPercent: number | null;
+  /** The student's own final measured value (e.g. mean titre, absorbance
+   * reading) — stored alongside deviationPercent so the learning summary can
+   * compare a pre-lab hypothesis against what was actually measured. */
+  studentResult: number | null;
   safetyAlertCount: number;
   duplicatePhotoCount: number;
   steps: StepRecord[];
   safetyLog: SafetyLogEntry[];
   notes: string[];
+  /** The student's own pre-experiment prediction — set once via POST
+   * /lab/:sessionId/hypothesis, never mutated by this store, so it's read
+   * here but excluded from buildPersistPayload/persist() below. */
+  hypothesis: string | null;
   updatedAt: number;
 }
 
@@ -77,6 +85,7 @@ function buildPersistPayload(s: StoredSession) {
     reagentHistory: s.reagentHistory as any,
     lastVisionPass: s.lastVisionPass,
     deviationPercent: s.deviationPercent,
+    studentResult: s.studentResult,
     safetyAlertCount: s.safetyAlertCount,
     duplicatePhotoCount: s.duplicatePhotoCount,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,11 +130,13 @@ export async function hydrateSession(id: string): Promise<StoredSession | undefi
       reagentHistory: (row.reagentHistory as unknown as Reagent[]) ?? [],
       lastVisionPass: row.lastVisionPass,
       deviationPercent: row.deviationPercent,
+      studentResult: row.studentResult,
       safetyAlertCount: row.safetyAlertCount,
       duplicatePhotoCount: row.duplicatePhotoCount,
       steps: (row.steps as unknown as StepRecord[]) ?? [],
       safetyLog: (row.safetyLog as unknown as SafetyLogEntry[]) ?? [],
       notes: (row.notes as unknown as string[]) ?? [],
+      hypothesis: row.hypothesis,
       updatedAt: row.updatedAt.getTime(),
     };
     store().sessions.set(id, s);
@@ -157,11 +168,13 @@ export function upsertSession(input: {
     reagentHistory: [],
     lastVisionPass: null,
     deviationPercent: null,
+    studentResult: null,
     safetyAlertCount: 0,
     duplicatePhotoCount: 0,
     steps,
     safetyLog: [],
     notes: [],
+    hypothesis: null,
     updatedAt: Date.now(),
   };
   session.experimentId = input.experimentId;
@@ -316,9 +329,10 @@ export function clearSafetyAlert(id: string) {
   });
 }
 
-export function recordResult(id: string, deviationPercent: number) {
+export function recordResult(id: string, deviationPercent: number, studentResult?: number) {
   return mutate(id, (s) => {
     s.deviationPercent = deviationPercent;
+    if (studentResult !== undefined) s.studentResult = studentResult;
     s.status = "completed";
     s.currentStep = s.totalSteps;
   });

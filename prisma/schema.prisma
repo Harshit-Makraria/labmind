@@ -75,6 +75,11 @@ model LabSession {
   reagentHistory   Json                @default("[]")
   lastVisionPass   Boolean?
   deviationPercent Float?
+  /// The student's own final measured value (e.g. mean titre, absorbance
+  /// reading) — kept alongside deviationPercent so the learning summary can
+  /// compare the student's PRE-lab hypothesis against what they actually
+  /// measured, not just against the textbook theoretical value.
+  studentResult    Float?
   safetyAlertCount Int                 @default(0)
   duplicatePhotoCount Int              @default(0)
   steps            Json                @default("[]")

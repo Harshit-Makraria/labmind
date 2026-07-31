@@ -454,6 +454,11 @@ export interface LearningSummary {
   concepts_learned: string[];
   improvement_suggestions: string[];
   badges: Badge[];
+  /** The student's own pre-experiment prediction, null if they skipped it. */
+  hypothesis: string | null;
+  /** Plain-language verdict comparing that prediction to the measured
+   * result — null whenever there's no hypothesis or no result yet to judge it against. */
+  hypothesis_verdict: string | null;
 }
 
 // ─── Lab report ─────────────────────────────────────────────────────

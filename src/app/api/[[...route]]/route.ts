@@ -29,7 +29,7 @@ import { generatePrelabQuiz, scorePrelabQuiz } from "@/server/tools/prelab-quiz"
 import {
   addInstructorNote, addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
   getAgentDecisionsFromDB, getSessionDetailFromDB,
-  getTracesFromDB, hydrateSession, logAgentDecision, manualOverride,
+  getTracesFromDB, hydrateSession, invalidateSessionCache, logAgentDecision, manualOverride,
   recordDuplicatePhoto, recordResult, recordSafetyAlert, recordVision, setCurrentStep, setStudentName,
   skipStep, upsertSession,
 } from "@/server/store/session-store";
@@ -523,7 +523,7 @@ app.post("/results/interpret", async (c) => {
   // hydrate before the sync mutator, else it no-ops and the final result is lost
   if (body.session_id) {
     await hydrateSession(body.session_id);
-    recordResult(body.session_id, result.deviation_percent);
+    recordResult(body.session_id, result.deviation_percent, body.student_result);
   }
   recordTrace("result_interpreter", `${body.student_result} ${body.unit} vs ${theoreticalValue}`, `${result.deviation_percent}% · ${result.severity}`, Date.now() - t0);
   return c.json(result);
@@ -787,6 +787,11 @@ app.post("/lab/:sessionId/hypothesis", async (c) => {
   if ((await sessionAccess(sessionId, c.get("user"))) === "forbidden") return c.json({ error: "Forbidden" }, 403);
   const { hypothesis } = await c.req.json<{ hypothesis: string }>();
   await db.labSession.update({ where: { id: sessionId }, data: { hypothesis } }).catch(() => {});
+  // This session is very likely already cached in-memory from the join/parse
+  // calls moments earlier on this same instance — without dropping it, the
+  // cache would keep serving the pre-hypothesis (null) copy for the rest of
+  // this instance's lifetime, and the summary/report would never see it.
+  invalidateSessionCache(sessionId);
   return c.json({ ok: true });
 });
 
