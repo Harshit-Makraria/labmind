@@ -1,12 +1,14 @@
 import "server-only";
 import type { Badge, LabReport, LearningSummary } from "@/lib/types";
+import { getExperiment } from "@/server/experiments";
 import { hydrateSession, type StoredSession } from "@/server/store/session-store";
+import { analysePacing } from "@/server/tools/pacing";
 
 const ALL_BADGES: Badge[] = [
   { id: "safe-hands",   label: "Safe Hands",        description: "Zero safety alerts",              icon: "🛡️", earned: false },
   { id: "sharp-eye",    label: "Sharp Eye",          description: "Vision verified on first attempt", icon: "👁️", earned: false },
   { id: "perfect-titre",label: "Perfect Titre",      description: "Result within 2% of expected",    icon: "🎯", earned: false },
-  { id: "speed-chemist",label: "Speed Chemist",      description: "Completed all steps",             icon: "⚡", earned: false },
+  { id: "speed-chemist",label: "Speed Chemist",      description: "Completed every step at a genuine, unhurried pace", icon: "⚡", earned: false },
   { id: "no-skip",      label: "No Shortcuts",       description: "Completed every step",            icon: "✅", earned: false },
   { id: "first-try",    label: "First-Try Verify",   description: "All visions passed first try",    icon: "🥇", earned: false },
 ];
@@ -38,7 +40,7 @@ export function computeHypothesisVerdict(hypothesis: string | null, studentResul
   return `Off — you predicted ${predicted} but measured ${studentResult} (${diff}% apart). Revisit the theory behind this experiment before your next prediction.`;
 }
 
-function computeSummary(sessionId: string, s: StoredSession | undefined): LearningSummary {
+export function computeSummary(sessionId: string, s: StoredSession | undefined): LearningSummary {
   if (!s) {
     return {
       session_id: sessionId, experiment_name: "Unknown", performance_score: 0,
@@ -52,6 +54,22 @@ function computeSummary(sessionId: string, s: StoredSession | undefined): Learni
   const skipped   = s.steps.filter((x) => x.state === "skipped").length;
   const overrides = s.steps.filter((x) => x.manual_override).length;
   const maxVision = Math.max(0, ...s.steps.map((x) => x.vision_attempts));
+  // Every step that actually went through a vision check, and whether EACH
+  // ONE genuinely passed on its first attempt — not just "the attempt count
+  // never exceeded 1" (true even for a single FAILED attempt that was then
+  // manually overridden) and not "the last recordVision() call happened to
+  // pass" (s.lastVisionPass is one mutable field overwritten by whichever
+  // step's vision check ran most recently, not "every step passed").
+  const visionSteps = s.steps.filter((x) => x.vision_attempts > 0);
+  const allVisionFirstTryPass = visionSteps.length > 0 && visionSteps.every((x) => x.vision_attempts === 1 && x.vision_pass === true);
+
+  // "Speed Chemist" used earned = completed === totalSteps — functionally
+  // identical to "No Shortcuts" (skipped === 0) despite the name/icon
+  // implying something about SPEED. Real per-step dwell-time data already
+  // exists (analysePacing, wired into the Integrity page) but was never
+  // consulted here — use its verdict so the badge actually requires a
+  // genuine, un-gamed pace, not just "nothing skipped."
+  const pacing = analysePacing(s.steps, getExperiment(s.experimentId).protocol, new Date(s.createdAt));
 
   const completionScore = Math.round((completed / (s.totalSteps || 1)) * 40);
   const accuracyRaw     = s.deviationPercent !== null ? Math.max(0, 100 - s.deviationPercent * 5) : 70;
@@ -84,10 +102,10 @@ function computeSummary(sessionId: string, s: StoredSession | undefined): Learni
     let earned = false;
     if (b.id === "safe-hands")    earned = s.safetyAlertCount === 0;
     if (b.id === "perfect-titre") earned = s.deviationPercent !== null && s.deviationPercent <= 2;
-    if (b.id === "speed-chemist") earned = completed === s.totalSteps;
+    if (b.id === "speed-chemist") earned = completed === s.totalSteps && pacing.verdict === "consistent";
     if (b.id === "no-skip")       earned = skipped === 0;
-    if (b.id === "first-try")     earned = maxVision <= 1;
-    if (b.id === "sharp-eye")     earned = s.lastVisionPass === true && maxVision <= 1;
+    if (b.id === "first-try")     earned = allVisionFirstTryPass;
+    if (b.id === "sharp-eye")     earned = allVisionFirstTryPass;
     return { ...b, earned };
   });
 
@@ -163,7 +181,10 @@ export async function buildReport(sessionId: string): Promise<LabReport> {
       : "Experiment in progress.",
     deviation_percent: s?.deviationPercent ?? null,
     mistakes: summary.mistakes,
-    instructor_remarks: "Pending instructor review.",
+    // s.notes accumulates real instructor/AI-escalation events (verification
+    // approvals/rejections, safety escalations) via addInstructorNote() — this
+    // was previously a hardcoded constant that could never reflect them.
+    instructor_remarks: s?.notes.length ? s.notes.join(" · ") : "Pending instructor review.",
     performance_score: summary.performance_score,
   };
 }

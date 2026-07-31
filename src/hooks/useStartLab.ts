@@ -22,6 +22,14 @@ export function useStartLab() {
         pdf_base64: pdfBase64,
         student_name: studentName,
       });
+      // The instructor create-session page already discloses this; the
+      // student path silently dropped it, so an uploaded PDF that fell back
+      // to the stock library experiment (no key, scan with no text layer,
+      // parse failure) left the student with zero indication their PDF was
+      // ignored.
+      if (pdfBase64 && !res.parsed_from_pdf) {
+        toast.warning(res.fallback_reason ?? "Could not parse that PDF — loaded the library experiment instead.", { duration: 6000 });
+      }
       saveSession({ sessionId, protocol: res, currentStepIndex: 0 });
       return sessionId;
     },

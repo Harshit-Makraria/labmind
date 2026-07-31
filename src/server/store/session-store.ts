@@ -43,6 +43,10 @@ export interface StoredSession {
    * /lab/:sessionId/hypothesis, never mutated by this store, so it's read
    * here but excluded from buildPersistPayload/persist() below. */
   hypothesis: string | null;
+  /** When the session row was first created — read-only here (Prisma manages
+   * it via @default(now())), needed by pacing analysis to compute elapsed
+   * time from the true start rather than from this cache load. */
+  createdAt: number;
   updatedAt: number;
 }
 
@@ -137,6 +141,7 @@ export async function hydrateSession(id: string): Promise<StoredSession | undefi
       safetyLog: (row.safetyLog as unknown as SafetyLogEntry[]) ?? [],
       notes: (row.notes as unknown as string[]) ?? [],
       hypothesis: row.hypothesis,
+      createdAt: row.createdAt.getTime(),
       updatedAt: row.updatedAt.getTime(),
     };
     store().sessions.set(id, s);
@@ -175,6 +180,7 @@ export function upsertSession(input: {
     safetyLog: [],
     notes: [],
     hypothesis: null,
+    createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   session.experimentId = input.experimentId;

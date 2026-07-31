@@ -271,8 +271,19 @@ function composeAnswer(
     case "status":
       return `You're on step ${r.current_step}/${r.total_steps} of ${r.experiment} — status ${r.status}. ${r.safety_alerts ? `${r.safety_alerts} safety alert(s) so far. ` : ""}Keep going!`;
     default: {
+      // This is the fallback the dock's own suggested chips land on most —
+      // "Is this step safe?" and "What should I observe?" have no reagent
+      // name or keyword the earlier branches key on, so they end up here.
+      // get_protocol_step already fetches safety_flags/expected; previously
+      // this branch silently dropped both from the answer the student
+      // actually sees, so those exact questions went unanswered.
       const instr = (r.instructions as string[]) ?? [];
-      return `Step ${r.step_number} — ${r.title}: ${instr.join("; ")}. ${r.science ? `Why: ${r.science}` : ""}`;
+      const flags = (r.safety_flags as string[]) ?? [];
+      const parts = [`Step ${r.step_number} — ${r.title}: ${instr.join("; ")}.`];
+      if (r.science) parts.push(`Why: ${r.science}`);
+      if (flags.length) parts.push(`Safety: ${flags.join("; ")}.`);
+      if (r.expected) parts.push(`Expected observation: ${r.expected}.`);
+      return parts.join(" ");
     }
   }
 }

@@ -73,6 +73,10 @@ export interface ParseProtocolResponse extends Protocol {
   theoretical: { label: string; value: number; unit: string };
   /** The experiment's real scientific objective, when known — null when a genuinely custom PDF was parsed into a different protocol than any library experiment. */
   description: string | null;
+  /** True only when the server actually structured an uploaded PDF into this protocol — false whenever it fell back to the library experiment (no PDF, no key, scan with no text layer, parse failure). */
+  parsed_from_pdf: boolean;
+  /** Human-readable reason a PDF upload fell back to the library experiment — null when no PDF was uploaded or it parsed successfully. */
+  fallback_reason: string | null;
 }
 
 // ─── Vision verification ────────────────────────────────────────────

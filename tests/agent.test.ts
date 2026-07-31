@@ -51,6 +51,21 @@ describe("agent orchestrator (demo loop runs real tools)", () => {
     const calls = events.filter((e) => e.type === "tool_call").map((e) => e.tool);
     expect(calls).toEqual(["check_safety"]);
   });
+
+  it("answers 'Is this step safe?' with the step's actual safety flags, not just instructions", async () => {
+    // No reagent names in the message, so this falls through to the generic
+    // "step" intent — get_protocol_step fetches safety_flags, but the answer
+    // used to silently drop them from what the student actually sees.
+    const events = await collect("Is this step safe?", { experiment_id: "acid-base-titration", current_step: 2 });
+    const answer = events.filter((e) => e.type === "delta").map((e) => e.text).join("");
+    expect(answer.toLowerCase()).toMatch(/gloves|goggles/);
+  });
+
+  it("answers 'What should I observe?' with the step's expected observation", async () => {
+    const events = await collect("What should I observe?", { experiment_id: "acid-base-titration", current_step: 1 });
+    const answer = events.filter((e) => e.type === "delta").map((e) => e.text).join("");
+    expect(answer.toLowerCase()).toMatch(/burette reads 0/);
+  });
 });
 
 describe("agent tools compute correctly", () => {
