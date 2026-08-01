@@ -858,6 +858,23 @@ app.post("/instructor/verify", async (c) => {
     await resolveVerification(body.id, body.status, body.comment, corrected);
     return c.json({ ok: true });
   }
+  if (body.action === "bulk_resolve") {
+    const ids: unknown = body.ids;
+    const status = body.status === "rejected" ? "rejected" : "approved";
+    if (!Array.isArray(ids) || ids.length === 0) return c.json({ error: "No ids provided" }, 400);
+    const userId = c.get("user").id;
+    let resolved = 0;
+    // Sequential, not Promise.all — each resolve does a read-modify-write on the
+    // student's labSession row, and concurrent writes to the same session (two
+    // queued entries for the same student) would race and drop one.
+    for (const id of ids) {
+      if (typeof id !== "string") continue;
+      if (!(await instructorOwnsVerification(id, userId))) continue;
+      await resolveVerification(id, status, body.comment);
+      resolved++;
+    }
+    return c.json({ ok: true, resolved });
+  }
   const entry = await submitVerification({
     session_id: body.session_id,
     student_name: body.student_name,

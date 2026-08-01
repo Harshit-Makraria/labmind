@@ -8,8 +8,16 @@
   --color-brand-600: #2f74bd;
   --color-accent: #2f9e6f;
   --color-accent-glow: #38a169;
-  --color-warning: #d69e2e;
-  --color-danger: #e53e3e;
+  /* Darkened from the original #d69e2e/#e53e3e — white text on those solid
+     backgrounds measured 2.39:1 (warning) and 4.13:1 (danger), both failing
+     WCAG AA's 4.5:1 floor for normal-size text (many of the app's status
+     chips are text-xs/text-sm, too small to qualify for the relaxed 3:1
+     large-text threshold). These values measure ~5.0:1 and ~4.8:1 against
+     white respectively — same warm amber/red family, just dark enough to
+     read reliably, including on the Bench View page, which is explicitly
+     designed to be read across a room. */
+  --color-warning: #b45309;
+  --color-danger: #dc2626;
   --color-surface: #eef2f7;
   --color-surface-2: #e6ecf3;
   --color-card: #ffffff;

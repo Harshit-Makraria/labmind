@@ -76,6 +76,7 @@ export default function CreateSessionPage() {
             </button>
             <button
               onClick={() => navigator.share?.({ title: "Join my LabMind session", text: `Use code ${created.code} to join`, url: shareUrl })}
+              aria-label="Share session link"
               className="flex items-center gap-2 rounded-xl border border-black/12 px-4 font-semibold text-[var(--color-navy)]"
             >
               <Share2 size={18} />

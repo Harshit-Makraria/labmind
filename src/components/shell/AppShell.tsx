@@ -11,6 +11,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { DemoBanner } from "@/components/DemoBanner";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 type Role = "instructor" | "student" | null;
 
@@ -239,11 +240,21 @@ function MobileBottomNav({ nav, pathname }: { nav: NavEntry[]; pathname: string 
 function MobileNavDrawer({
   open, onClose, nav, pathname, userName, role,
 }: { open: boolean; onClose: () => void; nav: NavEntry[]; pathname: string; userName: string; role: Role }) {
+  // Called unconditionally (before the `!open` early return) — the hook
+  // itself no-ops internally while `active` (open) is false.
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 md:hidden">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute left-0 top-0 flex h-full w-72 max-w-[80vw] flex-col bg-[#0f2942] py-4 text-white shadow-2xl">
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        tabIndex={-1}
+        className="absolute left-0 top-0 flex h-full w-72 max-w-[80vw] flex-col bg-[#0f2942] py-4 text-white shadow-2xl"
+      >
         <div className="flex items-center justify-between px-4 pb-3">
           <div className="flex items-center gap-2.5">
             <img src="/logo2.png" alt="LabMind" className="h-8 w-8 rounded-lg object-contain" />

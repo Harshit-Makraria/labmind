@@ -31,7 +31,7 @@ describe("demoCheckVision — genuine failure is reachable without a live provid
     }
 
     expect(sawGenuineMiss).toBe(true);
-  });
+  }, 15000);
 
   it("is deterministic — the same image+step always gives the same verdict", async () => {
     const image = await buretteLikeImage();

@@ -38,12 +38,14 @@ export default function ReportsPage() {
           value={filter.student}
           onChange={(e) => setFilter({ ...filter, student: e.target.value })}
           placeholder="Filter by student"
+          aria-label="Filter by student"
           className="min-h-[38px] flex-1 rounded-lg border border-black/12 px-3 text-sm outline-none focus:border-[var(--color-brand)]"
         />
         <input
           value={filter.experiment}
           onChange={(e) => setFilter({ ...filter, experiment: e.target.value })}
           placeholder="Filter by experiment"
+          aria-label="Filter by experiment"
           className="min-h-[38px] flex-1 rounded-lg border border-black/12 px-3 text-sm outline-none focus:border-[var(--color-brand)]"
         />
       </div>

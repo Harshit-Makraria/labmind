@@ -12,6 +12,7 @@ import type { AccuracyReport, VerificationEntry } from "@/lib/types";
 export default function VerifyPage() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
 
   const { data, isError, isPaused, error, failureReason, refetch } = useQuery<VerificationEntry[]>({
     queryKey: ["verifications"],
@@ -32,6 +33,24 @@ export default function VerifyPage() {
       if (!res.ok) throw new Error("Failed to save decision");
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["verifications"] }); toast.success("Decision saved"); setSelectedId(null); },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const bulkApprove = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await fetch("/api/instructor/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "bulk_resolve", ids, status: "approved" }),
+      });
+      if (!res.ok) throw new Error("Failed to bulk approve");
+      return (await res.json()) as { ok: true; resolved: number };
+    },
+    onSuccess: ({ resolved }) => {
+      qc.invalidateQueries({ queryKey: ["verifications"] });
+      toast.success(`Approved ${resolved} submission${resolved === 1 ? "" : "s"}`);
+      setBulkIds(new Set());
+    },
     onError: (e) => toast.error((e as Error).message),
   });
 
@@ -57,6 +76,24 @@ export default function VerifyPage() {
     if (!selectedId && pending[0]) setSelectedId(pending[0].id);
     if (selectedId && !pending.some((v) => v.id === selectedId)) setSelectedId(pending[0]?.id ?? null);
   }, [pending, selectedId]);
+
+  // Drop bulk-selected ids once they leave the pending queue (resolved elsewhere,
+  // e.g. another instructor tab, or by the bulk-approve call itself).
+  useEffect(() => {
+    setBulkIds((prev) => {
+      const next = new Set([...prev].filter((id) => pending.some((v) => v.id === id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [pending]);
+
+  const highConfidenceIds = pending.filter((v) => v.image_base64 && v.ai_confidence >= VISION_HIGH_CONFIDENCE).map((v) => v.id);
+  const toggleBulk = (id: string) =>
+    setBulkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const oldestMinutes = pending.length
     ? Math.max(0, Math.round((Date.now() - new Date(pending[pending.length - 1].submitted_at).getTime()) / 60000))
@@ -97,8 +134,44 @@ export default function VerifyPage() {
         <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
           {/* Queue list */}
           <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-0.5 pb-1">
+              {highConfidenceIds.length > 0 ? (
+                <button
+                  onClick={() => setBulkIds(new Set(highConfidenceIds))}
+                  className="text-xs font-semibold text-[var(--color-brand)] hover:underline"
+                >
+                  Select all high-confidence ({highConfidenceIds.length})
+                </button>
+              ) : (
+                <span />
+              )}
+              {bulkIds.size > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="font-data text-xs text-[var(--color-muted)]">{bulkIds.size} selected</span>
+                  <button onClick={() => setBulkIds(new Set())} className="text-xs text-[var(--color-muted)] hover:underline">
+                    Clear
+                  </button>
+                  <button
+                    disabled={bulkApprove.isPending}
+                    onClick={() => bulkApprove.mutate(Array.from(bulkIds))}
+                    className="btn-secondary !min-h-0 gap-1.5 !px-3 !py-1.5 text-xs"
+                    style={{ background: "var(--color-accent)" }}
+                  >
+                    <CheckCircle2 size={14} /> Approve {bulkIds.size}
+                  </button>
+                </div>
+              )}
+            </div>
             {pending.map((v, i) => (
-              <QueueRow key={v.id} v={v} active={v.id === selected?.id} onClick={() => setSelectedId(v.id)} index={i} />
+              <QueueRow
+                key={v.id}
+                v={v}
+                active={v.id === selected?.id}
+                onClick={() => setSelectedId(v.id)}
+                index={i}
+                checked={bulkIds.has(v.id)}
+                onToggleChecked={() => toggleBulk(v.id)}
+              />
             ))}
           </div>
 
@@ -199,41 +272,64 @@ function AccuracyCard({ report }: { report?: AccuracyReport }) {
   );
 }
 
-function QueueRow({ v, active, onClick, index }: { v: VerificationEntry; active: boolean; onClick: () => void; index: number }) {
+function QueueRow({
+  v,
+  active,
+  onClick,
+  index,
+  checked,
+  onToggleChecked,
+}: {
+  v: VerificationEntry;
+  active: boolean;
+  onClick: () => void;
+  index: number;
+  checked: boolean;
+  onToggleChecked: () => void;
+}) {
   const confidencePct = Math.round(v.ai_confidence * 100);
   const isLow = v.ai_confidence < VISION_HIGH_CONFIDENCE;
   const isOverride = !v.image_base64;
   const minsAgo = Math.max(0, Math.round((Date.now() - new Date(v.submitted_at).getTime()) / 60000));
 
   return (
-    <button
-      onClick={onClick}
-      className={`card anim-fade-up flex w-full gap-3 p-3.5 text-left transition-all ${active ? "shadow-[0_0_0_2px_var(--color-brand)]" : "hover:border-[var(--color-brand)]/30"}`}
+    <div
+      className={`card anim-fade-up flex w-full items-start gap-3 p-3.5 text-left transition-all ${active ? "shadow-[0_0_0_2px_var(--color-brand)]" : "hover:border-[var(--color-brand)]/30"}`}
       style={{ animationDelay: `${Math.min(index, 8) * 0.04}s` }}
     >
-      <div
-        className="h-[58px] w-[46px] shrink-0 rounded-lg bg-cover bg-center"
-        style={{
-          background: v.image_base64
-            ? `center / cover no-repeat url(${v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`})`
-            : "linear-gradient(160deg,#3a4650,#20272e)",
-        }}
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggleChecked}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Select ${v.student_name}'s step ${v.step_number} submission for bulk approval`}
+        className="mt-1.5 h-4 w-4 shrink-0 accent-[var(--color-brand)]"
       />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-bold text-[var(--color-navy)]">{v.student_name}</p>
-        <p className="truncate text-xs text-[var(--color-muted)]">
-          Step {v.step_number} · {isOverride ? "manual override" : `${confidencePct}% confidence`}
-        </p>
-        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] font-bold">
-          {isOverride ? (
-            <span className="rounded-full bg-black/[0.06] px-2 py-0.5 text-[var(--color-muted)]">OVERRIDE</span>
-          ) : isLow ? (
-            <span className="rounded-full bg-[var(--color-warning)]/15 px-2 py-0.5 text-[#b8860b]">NEEDS REVIEW</span>
-          ) : null}
-          <span className="font-data rounded-full bg-black/[0.04] px-2 py-0.5 text-[var(--color-muted)]">{minsAgo}m</span>
+      <button onClick={onClick} className="flex min-w-0 flex-1 gap-3 text-left">
+        <div
+          className="h-[58px] w-[46px] shrink-0 rounded-lg bg-cover bg-center"
+          style={{
+            background: v.image_base64
+              ? `center / cover no-repeat url(${v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`})`
+              : "linear-gradient(160deg,#3a4650,#20272e)",
+          }}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold text-[var(--color-navy)]">{v.student_name}</p>
+          <p className="truncate text-xs text-[var(--color-muted)]">
+            Step {v.step_number} · {isOverride ? "manual override" : `${confidencePct}% confidence`}
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5 text-[10px] font-bold">
+            {isOverride ? (
+              <span className="rounded-full bg-black/[0.06] px-2 py-0.5 text-[var(--color-muted)]">OVERRIDE</span>
+            ) : isLow ? (
+              <span className="rounded-full bg-[var(--color-warning)]/15 px-2 py-0.5 text-[#b8860b]">NEEDS REVIEW</span>
+            ) : null}
+            <span className="font-data rounded-full bg-black/[0.04] px-2 py-0.5 text-[var(--color-muted)]">{minsAgo}m</span>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -311,8 +407,11 @@ function ReviewDetail({
       </div>
 
       <div className="flex flex-wrap items-center gap-2.5 rounded-[var(--radius-btn)] bg-black/[0.02] p-3">
-        <span className="text-sm font-semibold text-[var(--color-muted)]">Your reading</span>
+        <label htmlFor="verify-reading-input" className="text-sm font-semibold text-[var(--color-muted)]">
+          Your reading
+        </label>
         <input
+          id="verify-reading-input"
           type="number"
           step="any"
           value={reading}
@@ -340,6 +439,7 @@ function ReviewDetail({
         <button
           disabled={pending}
           onClick={() => onResolve("rejected", "🚩 Flagged for follow-up")}
+          aria-label="Flag for follow-up"
           className="btn-ghost px-4"
           style={{ borderColor: "rgba(229,62,62,.4)", color: "var(--color-danger)" }}
         >

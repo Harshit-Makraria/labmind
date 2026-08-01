@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle, ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import type { SafetyConflict, Severity } from "@/lib/types";
 
 const RANK: Record<Severity, number> = { high: 3, medium: 2, low: 1 };
@@ -31,6 +32,11 @@ export function SafetyModal({
   const Icon = theme.icon;
   const isHigh = highest === "high";
 
+  // No onEscape — this modal exists to force an explicit acknowledgment of a
+  // safety risk before the student proceeds; a silent Escape-dismiss would
+  // undermine that, the same reason it has no backdrop-click dismiss either.
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -39,6 +45,11 @@ export function SafetyModal({
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
     >
       <motion.div
+        ref={trapRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="safety-modal-title"
+        tabIndex={-1}
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 300, damping: 24 }}
@@ -48,7 +59,7 @@ export function SafetyModal({
           <Icon size={26} />
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide opacity-90">Safety Check</p>
-            <h2 className="text-lg font-bold leading-tight">{theme.label}</h2>
+            <h2 id="safety-modal-title" className="text-lg font-bold leading-tight">{theme.label}</h2>
           </div>
         </div>
 

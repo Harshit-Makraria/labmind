@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/data-states";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import { api, isForbidden } from "@/lib/api-client";
 import type { SessionSummary } from "@/lib/types";
 
@@ -274,17 +275,25 @@ function DetailDrawer({ sessionId, onClose }: { sessionId: string; onClose: () =
     queryFn: () => api.sessionDetail(sessionId),
     refetchInterval: 4000,
   });
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed right-0 top-0 z-50 flex h-dvh w-full max-w-md flex-col bg-[var(--color-card)] shadow-2xl">
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={data?.student_name ? `${data.student_name}'s session detail` : "Session detail"}
+        tabIndex={-1}
+        className="fixed right-0 top-0 z-50 flex h-dvh w-full max-w-md flex-col bg-[var(--color-card)] shadow-2xl"
+      >
         <div className="flex items-center justify-between border-b border-black/8 px-4 py-3">
           <div>
             <h3 className="font-bold text-[var(--color-navy)]">{data?.student_name ?? "Session"}</h3>
             <p className="text-xs text-[var(--color-muted)]">{data?.experiment_name}</p>
           </div>
-          <button onClick={onClose} className="text-[var(--color-muted)] hover:text-[var(--color-navy)]">
+          <button onClick={onClose} aria-label="Close session detail" className="text-[var(--color-muted)] hover:text-[var(--color-navy)]">
             <X size={20} />
           </button>
         </div>
