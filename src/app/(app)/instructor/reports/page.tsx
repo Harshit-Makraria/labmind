@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Download, FileText, Filter } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Filter } from "lucide-react";
 import { useState } from "react";
 import { ErrorState } from "@/components/ui/data-states";
 import { fetchJson, isForbidden } from "@/lib/api-client";
@@ -19,6 +19,26 @@ export default function ReportsPage() {
     (filter.experiment === "" || s.experiment_name.toLowerCase().includes(filter.experiment.toLowerCase()))
   );
 
+  const exportCsv = () => {
+    const csv = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      ["Student Name", "Experiment", "Steps Completed", "Total Steps", "Status", "Deviation %", "Safety Alerts", "Overrides", "Updated At"].map(csv).join(","),
+      ...list.map((s) =>
+        [s.student_name, s.experiment_name, s.current_step, s.total_steps, s.status, s.deviation_percent ?? "", s.safety_alert_count, s.override_count, s.updated_at]
+          .map(csv)
+          .join(","),
+      ),
+    ].join("\n");
+    // Leading BOM so Excel opens the UTF-8 file without mangling accented names.
+    const blob = new Blob(["﻿" + lines], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `lab-reports-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (isError || isPaused) {
     const forbidden = isForbidden(error) || isForbidden(failureReason);
     return <ErrorState title="Couldn't load reports" onRetry={() => refetch()} offline={!forbidden && isPaused} forbidden={forbidden} />;
@@ -26,9 +46,19 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--color-navy)]">Reports Dashboard</h2>
-        <p className="text-sm text-[var(--color-muted)]">View and download auto-generated lab reports</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-[var(--color-navy)]">Reports Dashboard</h2>
+          <p className="text-sm text-[var(--color-muted)]">View and download auto-generated lab reports</p>
+        </div>
+        {list.length > 0 && (
+          <button
+            onClick={exportCsv}
+            className="flex items-center gap-2 rounded-xl border border-black/12 bg-white px-4 py-2 text-sm font-semibold text-[var(--color-navy)] hover:bg-[var(--color-surface)]"
+          >
+            <FileSpreadsheet size={15} /> Export all ({list.length}) as CSV
+          </button>
+        )}
       </div>
 
       {/* Filters */}
