@@ -24,6 +24,18 @@ const THEME: Record<ResultSeverity, { color: string; label: string }> = {
 // vision pipeline's physics check already applies to submitted photos.
 const TITRE_CONCORDANCE_ML = 0.1;
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+// Stoichiometry constants straight from the titration protocol itself
+// (titration.ts): step 1 fills the burette with 0.1M NaOH, step 2 pipettes
+// 25.0 mL of the unknown HCl. C(HCl) = C(NaOH) × V(NaOH titre) / V(HCl) is
+// the same n = C×V, 1:1 mole ratio, C = n/0.025 L formula step 6 states,
+// just expressed as one ratio so mL cancels without a separate conversion.
+// Without this, the raw titre volume (~24–25 mL) was being submitted AS the
+// result and compared straight against the 0.1 mol/L theoretical value,
+// producing nonsense deviations in the tens of thousands of percent.
+const NAOH_MOLARITY_M = 0.1;
+const HCL_VOLUME_ML = 25.0;
 
 function useTitres() {
   const [titres, setTitres] = useState(["", "", ""]);
@@ -65,6 +77,11 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
   const [theo, setTheo] = useState("");
   const [result, setResult] = useState<InterpretResult | null>(null);
   const { titres, setTitres, allFilled, outlierIndex, mean, deviationOfOutlier } = useTitres();
+  // The mean titre is a VOLUME (mL) — step 8 of the protocol asks for the
+  // calculated CONCENTRATION (mol/L), so this conversion has to happen
+  // before submission, not after. Submitting the raw mL mean as if it were
+  // the concentration is what produced the ~24,000%+ deviations.
+  const concentration = mean !== null ? (NAOH_MOLARITY_M * mean) / HCL_VOLUME_ML : null;
 
   useEffect(() => {
     if (theoretical) {
@@ -77,7 +94,7 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
     mutationFn: () =>
       api.interpret({
         session_id: sessionId,
-        student_result: isTitration ? (mean as number) : Number.parseFloat(value),
+        student_result: isTitration ? (concentration as number) : Number.parseFloat(value),
         unit,
         theoretical_value: Number.parseFloat(theo),
         experiment_id: session?.protocol.experiment_id,
@@ -87,7 +104,7 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
   });
 
   const valid = isTitration
-    ? allFilled && mean !== null
+    ? allFilled && concentration !== null
     : value !== "" && !Number.isNaN(Number.parseFloat(value));
 
   // Deep-linking straight to /result (session expired, sessionStorage cleared,
@@ -199,6 +216,13 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
                   {outlierIndex !== null ? "Concordant mean" : "Mean titre"}
                 </span>
                 <span className="font-data text-lg font-bold text-[var(--color-navy)]">{mean} mL</span>
+              </div>
+            )}
+
+            {concentration !== null && (
+              <div className="flex justify-between border-t border-black/[0.08] pt-2.5">
+                <span className="text-sm font-semibold text-[var(--color-muted)]">Calculated C(HCl)</span>
+                <span className="font-data text-lg font-bold text-[var(--color-navy)]">{round4(concentration)} mol/L</span>
               </div>
             )}
           </div>
