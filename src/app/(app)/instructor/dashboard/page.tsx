@@ -1,15 +1,32 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Eye, FlaskConical, PlusCircle, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, Eye, FlaskConical, PlusCircle, SkipForward, Users, X } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
-import { fetchJson, isForbidden } from "@/lib/api-client";
-import type { InstructorSession, SessionSummary } from "@/lib/types";
+import { api, fetchJson, isForbidden } from "@/lib/api-client";
+import type { InstructorSession, SessionSummary, SkipRequestSummary } from "@/lib/types";
 
 export default function InstructorDashboard() {
+  const qc = useQueryClient();
   const [filterRequire, setFilterRequire] = useState(false);
+  const { data: skipRequests } = useQuery<SkipRequestSummary[]>({
+    queryKey: ["skip-requests"],
+    queryFn: () => api.skipRequests(),
+    // A live 60s countdown is only useful if this stays close to real-time.
+    refetchInterval: 3000,
+  });
+  const respondToSkip = useMutation({
+    mutationFn: ({ sessionId, action }: { sessionId: string; action: "approve" | "deny" }) =>
+      action === "approve" ? api.approveSkipRequest(sessionId) : api.denySkipRequest(sessionId),
+    onSuccess: (_res, { action }) => {
+      qc.invalidateQueries({ queryKey: ["skip-requests"] });
+      toast.success(action === "approve" ? "Skip approved" : "Skip denied");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Couldn't respond to the request — it may have expired"),
+  });
   const { data: instrSessions, isError: sessionsErrored, isPaused: sessionsPaused, error: sessionsError, failureReason: sessionsFailureReason, refetch: refetchSessions } = useQuery<InstructorSession[]>({
     queryKey: ["instructor-sessions"],
     queryFn: () => fetchJson<InstructorSession[]>("/api/instructor/sessions"),
@@ -85,6 +102,44 @@ export default function InstructorDashboard() {
           </button>
         </Link>
       </div>
+
+      {/* Skip requests — students can't self-skip in an instructor-led
+          session; each request needs a response inside a 60s window. */}
+      {!!skipRequests?.length && (
+        <section className="card anim-fade-up space-y-2.5 border-l-[3px] border-[var(--color-brand)] p-4">
+          <p className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-navy)]">
+            <SkipForward size={15} className="text-[var(--color-brand)]" /> Skip requests waiting on you
+          </p>
+          <div className="space-y-2">
+            {skipRequests.map((r) => (
+              <div key={r.session_id} className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-btn)] bg-black/[0.03] px-3 py-2">
+                <div>
+                  <p className="text-sm font-semibold text-[var(--color-navy)]">
+                    {r.student_name} — Step {r.step_number}
+                  </p>
+                  <p className="font-data text-xs text-[var(--color-muted)]">{r.seconds_remaining}s left to respond</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    disabled={respondToSkip.isPending}
+                    onClick={() => respondToSkip.mutate({ sessionId: r.session_id, action: "approve" })}
+                    className="flex items-center gap-1 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={13} /> Approve
+                  </button>
+                  <button
+                    disabled={respondToSkip.isPending}
+                    onClick={() => respondToSkip.mutate({ sessionId: r.session_id, action: "deny" })}
+                    className="flex items-center gap-1 rounded-lg border border-black/12 bg-white px-3 py-1.5 text-xs font-bold text-[var(--color-navy)] disabled:opacity-50"
+                  >
+                    <X size={13} /> Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Sessions table */}
       <section>

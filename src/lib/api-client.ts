@@ -15,6 +15,7 @@ import type {
   SessionAction,
   SessionDetail,
   SessionSummary,
+  SkipRequestSummary,
   TraceSpan,
   VisionCheckRequest,
   VisionResult,
@@ -103,6 +104,12 @@ export const api = {
 
   verifyPasscode: (passcode: string) =>
     get<{ ok: boolean }>(`/api/dashboard/verify?passcode=${encodeURIComponent(passcode)}`),
+
+  skipRequests: () => get<SkipRequestSummary[]>("/api/instructor/skip-requests"),
+  approveSkipRequest: (sessionId: string) =>
+    post<Record<string, never>, { ok: boolean; step_number: number }>(`/api/instructor/skip-requests/${sessionId}/approve`, {}),
+  denySkipRequest: (sessionId: string) =>
+    post<Record<string, never>, { ok: boolean }>(`/api/instructor/skip-requests/${sessionId}/deny`, {}),
 };
 
 /**

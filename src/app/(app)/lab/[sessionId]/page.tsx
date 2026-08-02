@@ -40,7 +40,8 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, idx, steps.length]);
 
-  // Server-side flag state (which steps became unreliable after a skip).
+  // Server-side flag state (which steps became unreliable after a skip), and
+  // this step's skip-request status when the session has an instructor.
   const { data: detail } = useQuery({
     queryKey: ["session-detail", sessionId, stepNumber],
     queryFn: () => api.sessionDetail(sessionId),
@@ -48,6 +49,36 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
     enabled: !!session,
   });
   const flaggedSteps = new Set((detail?.steps ?? []).filter((s) => s.flagged).map((s) => s.step_number));
+
+  const skipRequest = detail?.skip_request ?? null;
+  const pendingSkipSeconds =
+    skipRequest && skipRequest.step_number === stepNumber && skipRequest.seconds_remaining > 0
+      ? skipRequest.seconds_remaining
+      : null;
+
+  // A request for THIS step just resolved — either the instructor approved it
+  // (the step's own record flips to "skipped") or the 60s window ran out with
+  // no response. Both cases need to move the student out of the "waiting"
+  // state; only fire once per transition, not on every 4s poll. Navigation is
+  // inlined here (rather than calling advance(), defined further below)
+  // because a hoisted function declaration would work but reads as a forward
+  // reference — this keeps the effect self-contained.
+  const wasWaitingRef = useRef(false);
+  useEffect(() => {
+    const stillWaiting = pendingSkipSeconds !== null;
+    if (wasWaitingRef.current && !stillWaiting) {
+      const approved = (detail?.steps ?? []).find((s) => s.step_number === stepNumber)?.state === "skipped";
+      if (approved) {
+        toast.success(`Instructor approved — step ${stepNumber} skipped`);
+        if (idx + 1 < steps.length) setStepIndex(idx + 1);
+        else router.push(`/lab/${sessionId}/result`);
+      } else {
+        toast("Instructor didn't respond in time — please complete this step yourself.", { icon: "⏳", duration: 5000 });
+      }
+    }
+    wasWaitingRef.current = stillWaiting;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSkipSeconds, detail]);
 
   // Feature 3: run the safety engine whenever the active step changes.
   useEffect(() => {
@@ -105,6 +136,13 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
   }
 
   function skip() {
+    if (detail?.instructor_code) {
+      // Instructor-led session — queue a request instead of skipping outright;
+      // stay on this step until the poll above sees it approved or expired.
+      api.sessionAction(sessionId, { type: "request_skip", step_number: step.step_number }).catch(() => {});
+      toast("Skip request sent — waiting for your instructor to approve it.", { icon: "⏳" });
+      return;
+    }
     api.sessionAction(sessionId, { type: "skip_step", step_number: step.step_number }).catch(() => {});
     toast(`Step ${step.step_number} skipped — downstream steps may be flagged`, { icon: "⚠️" });
     advance(idx + 1);
@@ -129,6 +167,8 @@ export default function LabPage({ params }: { params: Promise<{ sessionId: strin
         flagged={flaggedSteps.has(step.step_number)}
         onComplete={complete}
         onSkip={skip}
+        skipRequiresApproval={!!detail?.instructor_code}
+        pendingSkipSeconds={pendingSkipSeconds}
       />
 
       <AssistantDock

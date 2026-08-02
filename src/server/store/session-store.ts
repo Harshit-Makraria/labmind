@@ -12,6 +12,7 @@ import type {
   SessionDetail,
   SessionStatus,
   SessionSummary,
+  SkipRequestSummary,
   StepRecord,
   SafetyLogEntry,
   TraceSpan,
@@ -43,6 +44,11 @@ export interface StoredSession {
    * /lab/:sessionId/hypothesis, never mutated by this store, so it's read
    * here but excluded from buildPersistPayload/persist() below. */
   hypothesis: string | null;
+  /** A pending skip request awaiting instructor approval — see requestSkip(). */
+  skipRequestStep: number | null;
+  skipRequestAt: number | null;
+  /** Set once at join time; null for a solo/library session with no instructor attached. */
+  instructorCode: string | null;
   /** When the session row was first created — read-only here (Prisma manages
    * it via @default(now())), needed by pacing analysis to compute elapsed
    * time from the true start rather than from this cache load. */
@@ -97,14 +103,17 @@ function buildPersistPayload(s: StoredSession) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     safetyLog: s.safetyLog as any,
     notes: s.notes,
+    skipRequestStep: s.skipRequestStep,
+    skipRequestAt: s.skipRequestStep !== null ? new Date(s.skipRequestAt as number) : null,
   };
 }
 
-/** Fire-and-forget persist — safe for non-critical mutations (step completions, reagents). */
-function persist(s: StoredSession) {
+/** Writes the row and returns the in-flight promise so a caller can await it when the write must be durable before responding. */
+function persist(s: StoredSession): Promise<void> {
   const payload = buildPersistPayload(s);
-  db.labSession
+  return db.labSession
     .upsert({ where: { id: s.sessionId }, create: { id: s.sessionId, ...payload }, update: payload })
+    .then(() => undefined)
     .catch((e) => console.error("[session-store] persist failed — data may be lost on restart:", e));
 }
 
@@ -141,6 +150,9 @@ export async function hydrateSession(id: string): Promise<StoredSession | undefi
       safetyLog: (row.safetyLog as unknown as SafetyLogEntry[]) ?? [],
       notes: (row.notes as unknown as string[]) ?? [],
       hypothesis: row.hypothesis,
+      skipRequestStep: row.skipRequestStep,
+      skipRequestAt: row.skipRequestAt?.getTime() ?? null,
+      instructorCode: row.instructorCode,
       createdAt: row.createdAt.getTime(),
       updatedAt: row.updatedAt.getTime(),
     };
@@ -159,6 +171,11 @@ export function upsertSession(input: {
   experimentId: string;
   experimentName: string;
   totalSteps: number;
+  /** Set on join — the DB row already has this from the direct upsert in the
+   * /student/join route, but that call bypasses this in-memory cache, so a
+   * freshly-created cache entry needs it passed in explicitly or the client
+   * would see instructor_code: null for a session that IS instructor-led. */
+  instructorCode?: string | null;
 }): StoredSession {
   const existing = store().sessions.get(input.sessionId);
   const steps: StepRecord[] = Array.from({ length: input.totalSteps }, (_, i) => blankStep(i + 1));
@@ -180,11 +197,15 @@ export function upsertSession(input: {
     safetyLog: [],
     notes: [],
     hypothesis: null,
+    skipRequestStep: null,
+    skipRequestAt: null,
+    instructorCode: input.instructorCode ?? null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
   session.experimentId = input.experimentId;
   session.experimentName = input.experimentName;
+  if (input.instructorCode !== undefined) session.instructorCode = input.instructorCode;
   if (input.studentName) session.studentName = input.studentName;
   if (session.steps.length !== input.totalSteps) {
     session.steps = steps;
@@ -205,7 +226,24 @@ function mutate(id: string, fn: (s: StoredSession) => void): StoredSession | und
   if (!s) return undefined;
   fn(s);
   s.updatedAt = Date.now();
-  persist(s);
+  persist(s).catch(() => {}); // errors already logged inside persist()
+  return s;
+}
+
+/**
+ * Same as mutate(), but awaits the DB write before returning. Serverless
+ * (Vercel) can freeze a function instance right after it sends its HTTP
+ * response, which can cut off an in-flight fire-and-forget upsert — this is
+ * why "completed" experiments intermittently never actually persisted as
+ * completed. Use this for state transitions the student/instructor depend on
+ * being durable the moment the request that caused them returns.
+ */
+async function mutateAwait(id: string, fn: (s: StoredSession) => void): Promise<StoredSession | undefined> {
+  const s = store().sessions.get(id);
+  if (!s) return undefined;
+  fn(s);
+  s.updatedAt = Date.now();
+  await persist(s);
   return s;
 }
 
@@ -246,6 +284,51 @@ export function skipStep(id: string, stepNumber: number, affected: number[]) {
       const ar = stepRec(s, a);
       if (ar) ar.flagged = true;
     }
+  });
+}
+
+/** A student in an instructor-led session can't self-skip — a request sits here until the instructor approves it or it expires. */
+export const SKIP_REQUEST_TIMEOUT_MS = 60_000;
+
+export function requestSkip(id: string, stepNumber: number) {
+  return mutate(id, (s) => {
+    s.skipRequestStep = stepNumber;
+    s.skipRequestAt = Date.now();
+  });
+}
+
+/**
+ * Instructor approves a pending skip request — performs the actual skip
+ * (same effect as skipStep) and clears the request. Returns null if there is
+ * no live (unexpired) request to approve, so the route can tell the
+ * instructor their tap was too late rather than silently doing nothing.
+ * Awaits the write (see mutateAwait) — the requesting student's poll loop
+ * needs to see this durably, not lose it to a frozen serverless instance.
+ */
+export async function approveSkipRequest(id: string, affected: number[]): Promise<StoredSession | undefined | null> {
+  const s = store().sessions.get(id);
+  if (!s) return undefined;
+  if (s.skipRequestStep === null || s.skipRequestAt === null || Date.now() - s.skipRequestAt >= SKIP_REQUEST_TIMEOUT_MS) {
+    return null;
+  }
+  const stepNumber = s.skipRequestStep;
+  return mutateAwait(id, (sess) => {
+    const rec = stepRec(sess, stepNumber);
+    if (rec) rec.state = "skipped";
+    for (const a of affected) {
+      const ar = stepRec(sess, a);
+      if (ar) ar.flagged = true;
+    }
+    sess.skipRequestStep = null;
+    sess.skipRequestAt = null;
+  });
+}
+
+/** Instructor explicitly declines, or the student's poll discovers the request timed out — either way, clear it so it stops showing as pending. */
+export function clearSkipRequest(id: string) {
+  return mutate(id, (s) => {
+    s.skipRequestStep = null;
+    s.skipRequestAt = null;
   });
 }
 
@@ -336,7 +419,7 @@ export function clearSafetyAlert(id: string) {
 }
 
 export function recordResult(id: string, deviationPercent: number, studentResult?: number) {
-  return mutate(id, (s) => {
+  return mutateAwait(id, (s) => {
     s.deviationPercent = deviationPercent;
     if (studentResult !== undefined) s.studentResult = studentResult;
     s.status = "completed";
@@ -413,16 +496,52 @@ export async function allSummariesFromDB(ownerUserId?: string): Promise<SessionS
   });
 }
 
+function skipRequestInfo(s: StoredSession): SessionDetail["skip_request"] {
+  if (s.skipRequestStep === null || s.skipRequestAt === null) return null;
+  const secondsRemaining = Math.max(0, Math.round((SKIP_REQUEST_TIMEOUT_MS - (Date.now() - s.skipRequestAt)) / 1000));
+  return {
+    step_number: s.skipRequestStep,
+    requested_at: new Date(s.skipRequestAt).toISOString(),
+    seconds_remaining: secondsRemaining,
+  };
+}
+
 export function getSessionDetail(id: string): SessionDetail | undefined {
   const s = store().sessions.get(id);
   if (!s) return undefined;
-  return { ...summarize(s), steps: s.steps, safety_log: s.safetyLog };
+  return { ...summarize(s), steps: s.steps, safety_log: s.safetyLog, instructor_code: s.instructorCode, skip_request: skipRequestInfo(s) };
 }
 
 export async function getSessionDetailFromDB(id: string): Promise<SessionDetail | undefined> {
   const s = await hydrateSession(id);
   if (!s) return undefined;
-  return { ...summarize(s), steps: s.steps, safety_log: s.safetyLog };
+  return { ...summarize(s), steps: s.steps, safety_log: s.safetyLog, instructor_code: s.instructorCode, skip_request: skipRequestInfo(s) };
+}
+
+/**
+ * Sessions with a live (unexpired) pending skip request, scoped to this
+ * instructor's own classes — same ownership rule as allSummariesFromDB.
+ */
+export async function listPendingSkipRequests(ownerUserId?: string): Promise<SkipRequestSummary[]> {
+  const cutoff = new Date(Date.now() - SKIP_REQUEST_TIMEOUT_MS);
+  const rows = await db.labSession.findMany({
+    where: {
+      skipRequestStep: { not: null },
+      skipRequestAt: { gte: cutoff },
+      ...(ownerUserId
+        ? { OR: [{ instructorCode: null }, { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } }] }
+        : {}),
+    },
+    select: { id: true, studentName: true, skipRequestStep: true, skipRequestAt: true },
+    orderBy: { skipRequestAt: "asc" },
+  });
+  return rows.map((row) => ({
+    session_id: row.id,
+    student_name: row.studentName,
+    step_number: row.skipRequestStep as number,
+    requested_at: (row.skipRequestAt as Date).toISOString(),
+    seconds_remaining: Math.max(0, Math.round((SKIP_REQUEST_TIMEOUT_MS - (Date.now() - (row.skipRequestAt as Date).getTime())) / 1000)),
+  }));
 }
 
 export function getNotes(id: string): string[] {

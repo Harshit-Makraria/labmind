@@ -235,11 +235,26 @@ export interface SessionSummary {
 export interface SessionDetail extends SessionSummary {
   steps: StepRecord[];
   safety_log: SafetyLogEntry[];
+  /** Set for a session joined via an instructor code, null for solo/library use. */
+  instructor_code: string | null;
+  /** A student-initiated skip awaiting instructor approval — null once approved (step becomes "skipped"), denied, or after seconds_remaining hits 0. */
+  skip_request: { step_number: number; requested_at: string; seconds_remaining: number } | null;
+}
+
+export interface SkipRequestSummary {
+  session_id: string;
+  student_name: string;
+  step_number: number;
+  requested_at: string;
+  seconds_remaining: number;
 }
 
 export type SessionAction =
   | { type: "complete_step"; step_number: number }
+  /** Solo/library sessions only (no instructorCode) — skips instantly. */
   | { type: "skip_step"; step_number: number }
+  /** Instructor-led sessions — queues a request instead of skipping immediately. */
+  | { type: "request_skip"; step_number: number }
   | { type: "manual_override"; step_number: number; value: number | null; note: string }
   | { type: "set_student_name"; name: string };
 

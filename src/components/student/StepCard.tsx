@@ -18,9 +18,13 @@ interface StepCardProps {
   flagged?: boolean;
   onComplete: () => void;
   onSkip: () => void;
+  /** Instructor-led session — skip needs approval instead of happening instantly. */
+  skipRequiresApproval?: boolean;
+  /** Seconds left on a live skip request for THIS step; null/undefined when there is none. */
+  pendingSkipSeconds?: number | null;
 }
 
-export function StepCard({ step, current, total, flagged, onComplete, onSkip }: StepCardProps) {
+export function StepCard({ step, current, total, flagged, onComplete, onSkip, skipRequiresApproval, pendingSkipSeconds }: StepCardProps) {
   const [showWhy, setShowWhy] = useState(false);
   const requiresPhoto = step.vision_check_required;
 
@@ -91,24 +95,35 @@ export function StepCard({ step, current, total, flagged, onComplete, onSkip }: 
           </div>
         ) : null}
 
-        <Button onClick={onComplete}>
-          {requiresPhoto ? (
-            <>
-              <Camera size={18} /> Capture Photo to Verify
-            </>
-          ) : (
-            <>
-              <Check size={18} /> Mark Step Complete
-            </>
-          )}
-        </Button>
+        {pendingSkipSeconds !== null && pendingSkipSeconds !== undefined ? (
+          <div className="flex flex-col items-center gap-1 rounded-[var(--radius-btn)] bg-[var(--color-brand)]/8 p-3.5 text-center">
+            <p className="text-sm font-semibold text-[var(--color-brand)]">Waiting for instructor approval…</p>
+            <p className="font-data text-xs text-[var(--color-muted)]">
+              {pendingSkipSeconds}s left — if they don&apos;t respond in time, just complete the step yourself.
+            </p>
+          </div>
+        ) : (
+          <>
+            <Button onClick={onComplete}>
+              {requiresPhoto ? (
+                <>
+                  <Camera size={18} /> Capture Photo to Verify
+                </>
+              ) : (
+                <>
+                  <Check size={18} /> Mark Step Complete
+                </>
+              )}
+            </Button>
 
-        <button
-          onClick={onSkip}
-          className="flex w-full items-center justify-center gap-1.5 text-xs font-medium text-[var(--color-muted)] hover:text-[var(--color-warning)]"
-        >
-          <SkipForward size={13} /> Skip this step
-        </button>
+            <button
+              onClick={onSkip}
+              className="flex w-full items-center justify-center gap-1.5 text-xs font-medium text-[var(--color-muted)] hover:text-[var(--color-warning)]"
+            >
+              <SkipForward size={13} /> {skipRequiresApproval ? "Request skip (needs instructor approval)" : "Skip this step"}
+            </button>
+          </>
+        )}
       </div>
     </motion.div>
   );

@@ -172,7 +172,7 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
                     value={t}
                     onChange={(e) => setTitres((prev) => prev.map((v, k) => (k === i ? e.target.value : v)))}
                     placeholder="e.g. 24.50"
-                    className="font-data min-h-[48px] flex-1 rounded-[var(--radius-btn)] border-2 px-3 text-[15px] outline-none transition-colors focus:border-[var(--color-brand)]"
+                    className="font-data min-h-[48px] min-w-0 flex-1 rounded-[var(--radius-btn)] border-2 px-3 text-[15px] outline-none transition-colors focus:border-[var(--color-brand)]"
                     style={{ borderColor: isOutlier ? "var(--color-warning)" : "rgba(15,41,66,.12)" }}
                   />
                   <span className="text-sm font-medium text-[var(--color-muted)]">mL</span>
@@ -215,13 +215,13 @@ export function ResultEntry({ sessionId }: { sessionId: string }) {
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 placeholder="e.g. 0.094"
-                className="font-data min-h-[52px] flex-[2] rounded-[var(--radius-btn)] border border-black/15 px-4 text-lg outline-none focus:border-[var(--color-brand)]"
+                className="font-data min-h-[52px] min-w-0 flex-[2] rounded-[var(--radius-btn)] border border-black/15 px-4 text-lg outline-none focus:border-[var(--color-brand)]"
               />
               <input
                 type="text"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                className="min-h-[52px] flex-1 rounded-[var(--radius-btn)] border border-black/15 px-3 text-center outline-none focus:border-[var(--color-brand)]"
+                className="min-h-[52px] min-w-0 flex-1 rounded-[var(--radius-btn)] border border-black/15 px-3 text-center outline-none focus:border-[var(--color-brand)]"
               />
             </div>
           </label>

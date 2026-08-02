@@ -88,6 +88,12 @@ model LabSession {
   hypothesis       String?
   prelabScore      Float?
   prelabPassed     Boolean?
+  /// A student-initiated skip request awaiting instructor approval. Only
+  /// meaningful when instructorCode is set — solo/library sessions skip
+  /// instantly with no request cycle. Cleared on approval, deny, or once
+  /// SKIP_REQUEST_TIMEOUT_MS has elapsed unanswered.
+  skipRequestStep  Int?
+  skipRequestAt    DateTime?
   instructorCode   String?
   instructor       InstructorSession?  @relation(fields: [instructorCode], references: [code])
   verifications    VerificationEntry[]

@@ -27,10 +27,10 @@ import { buildLearningSummary, buildReport } from "@/server/tools/summary";
 import { MOCK_SESSIONS } from "@/server/data/mock-sessions";
 import { generatePrelabQuiz, scorePrelabQuiz } from "@/server/tools/prelab-quiz";
 import {
-  addInstructorNote, addReagents, allSummariesFromDB, clearSafetyAlert, completeStep,
+  addInstructorNote, addReagents, allSummariesFromDB, approveSkipRequest, clearSafetyAlert, clearSkipRequest, completeStep,
   getAgentDecisionsFromDB, getSessionDetailFromDB,
-  getTracesFromDB, hydrateSession, invalidateSessionCache, logAgentDecision, manualOverride,
-  recordDuplicatePhoto, recordResult, recordSafetyAlert, recordVision, setCurrentStep, setStudentName,
+  getTracesFromDB, hydrateSession, invalidateSessionCache, listPendingSkipRequests, logAgentDecision, manualOverride,
+  recordDuplicatePhoto, recordResult, recordSafetyAlert, recordVision, requestSkip, setCurrentStep, setStudentName,
   skipStep, upsertSession,
 } from "@/server/store/session-store";
 import { db } from "@/server/db";
@@ -526,10 +526,14 @@ app.post("/results/interpret", async (c) => {
   const theoreticalValue = getExperiment(experimentId).theoretical.value;
   const result = interpret({ ...body, experiment_id: experimentId, theoretical_value: theoreticalValue });
 
-  // hydrate before the sync mutator, else it no-ops and the final result is lost
+  // hydrate before the mutator, else it no-ops. And AWAIT the write itself —
+  // Vercel can freeze this function right after the response is sent, which
+  // was cutting off the fire-and-forget DB upsert before "completed" ever
+  // reached Postgres, so a student who finished an experiment would see it
+  // stay stuck at "active" forever.
   if (body.session_id) {
     await hydrateSession(body.session_id);
-    recordResult(body.session_id, result.deviation_percent, body.student_result);
+    await recordResult(body.session_id, result.deviation_percent, body.student_result);
   }
   recordTrace("result_interpreter", `${body.student_result} ${body.unit} vs ${theoreticalValue}`, `${result.deviation_percent}% · ${result.severity}`, Date.now() - t0);
   return c.json(result);
@@ -559,7 +563,7 @@ app.post("/session/action", async (c) => {
   // Pre-lab gate — enforced here, not just in the UI, so a student cannot skip
   // it by navigating straight to a step URL. Only step-advancing actions are
   // gated; renaming yourself is always allowed.
-  const ADVANCING = new Set(["complete_step", "skip_step", "manual_override"]);
+  const ADVANCING = new Set(["complete_step", "skip_step", "request_skip", "manual_override"]);
   if (ADVANCING.has(action.type)) {
     const gate = await db.labSession.findUnique({
       where: { id: session_id },
@@ -586,12 +590,34 @@ app.post("/session/action", async (c) => {
       } catch {}
       break;
     case "skip_step": {
+      // Enforced here, not just left to client choice — a session joined via
+      // an instructor code must go through request_skip/instructor approval;
+      // only a solo/library session (no instructorCode) may self-skip.
+      if (session.instructorCode) {
+        return c.json(
+          { error: "This is an instructor-led session — request a skip instead of skipping directly", instructor_approval_required: true },
+          403,
+        );
+      }
       const affected = flagDownstreamStepsFor(experimentId, action.step_number);
       // skipStep marks the step itself as "skipped" AND flags the downstream
       // ones. flagDownstreamSteps only did the latter, so skipped steps stayed
       // "pending" forever and never showed up in the learning summary.
       skipStep(session_id, action.step_number, affected);
       setCurrentStep(session_id, action.step_number + 1);
+      break;
+    }
+    case "request_skip": {
+      // A solo/library session has no instructor to approve anything —
+      // fall back to an instant skip rather than stranding the student
+      // waiting for an approval that will never come.
+      if (!session.instructorCode) {
+        const affected = flagDownstreamStepsFor(experimentId, action.step_number);
+        skipStep(session_id, action.step_number, affected);
+        setCurrentStep(session_id, action.step_number + 1);
+        break;
+      }
+      requestSkip(session_id, action.step_number);
       break;
     }
     case "manual_override": {
@@ -894,6 +920,44 @@ app.post("/instructor/verify", async (c) => {
   return c.json(entry);
 });
 
+// ─── Skip requests (instructor-led sessions only) ──────────────────────
+// A student in a session joined via an instructor code can't self-skip a
+// step (see the "skip_step" gate in /session/action) — they queue a
+// request here instead, which the instructor approves or denies from
+// their own dashboard within SKIP_REQUEST_TIMEOUT_MS.
+app.get("/instructor/skip-requests", async (c) => {
+  return c.json(await listPendingSkipRequests(c.get("user").id));
+});
+
+app.post("/instructor/skip-requests/:sessionId/approve", async (c) => {
+  const { sessionId } = c.req.param();
+  const row = await db.labSession.findUnique({
+    where: { id: sessionId },
+    select: { instructorCode: true, experimentId: true, skipRequestStep: true },
+  });
+  if (!row?.instructorCode || !(await instructorOwnsCode(row.instructorCode, c.get("user").id))) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  if (row.skipRequestStep === null) return c.json({ error: "No pending request" }, 404);
+  await hydrateSession(sessionId);
+  const affected = flagDownstreamStepsFor(row.experimentId, row.skipRequestStep);
+  const result = await approveSkipRequest(sessionId, affected);
+  if (result === null) return c.json({ error: "Request expired before it could be approved" }, 409);
+  if (!result) return c.json({ error: "Not found" }, 404);
+  return c.json({ ok: true, step_number: row.skipRequestStep });
+});
+
+app.post("/instructor/skip-requests/:sessionId/deny", async (c) => {
+  const { sessionId } = c.req.param();
+  const row = await db.labSession.findUnique({ where: { id: sessionId }, select: { instructorCode: true } });
+  if (!row?.instructorCode || !(await instructorOwnsCode(row.instructorCode, c.get("user").id))) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  await hydrateSession(sessionId);
+  clearSkipRequest(sessionId);
+  return c.json({ ok: true });
+});
+
 // ─── Student join ─────────────────────────────────────────────────────
 app.post("/student/join", async (c) => {
   // Join codes are 4 chars over a ~32-char alphabet (~1M combinations) — cheap
@@ -939,7 +1003,7 @@ app.post("/student/join", async (c) => {
     },
     update: { instructorCode: code.toUpperCase(), studentName: attributedName, userId: user?.id ?? null },
   });
-  upsertSession({ sessionId: session_id, studentName: attributedName, experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length });
+  upsertSession({ sessionId: session_id, studentName: attributedName, experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length, instructorCode: code.toUpperCase() });
   console.log(`[ROUTE /student/join] ✓ Joined: session_id=${session_id} experiment=${exp.id} user=${user?.email ?? "?"} name="${attributedName}" instructor_code=${code}`);
   return c.json({ ok: true, experiment_id: exp.id, experiment_name: exp.name, session_name: instrSession.session_name });
 });
