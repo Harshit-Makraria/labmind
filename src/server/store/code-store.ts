@@ -7,7 +7,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { invalidateSessionCache } from "@/server/store/session-store";
 import { getExperiment } from "@/server/experiments";
-import type { InstructorSession, StepRecord, VerificationEntry, VerificationStatus } from "@/lib/types";
+import type { InstructorSession, Protocol, StepRecord, VerificationEntry, VerificationStatus } from "@/lib/types";
 
 const VISION_UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", absorbance: "AU", colour_change: "" };
 
@@ -148,6 +148,8 @@ export async function listInstructorSessions(ownerUserId?: string): Promise<Inst
 export async function createInstructorSession(
   meta: Omit<InstructorSession, "code" | "created_at" | "student_session_ids">,
   createdByUserId?: string,
+  /** The AI-parsed protocol from an uploaded PDF, when the instructor provided one. Every student who joins this code gets THIS protocol instead of the library one for experimentId. */
+  customProtocol?: Protocol | null,
 ): Promise<InstructorSession> {
   const code = await generateCode();
   const row = await db.instructorSession.create({
@@ -163,6 +165,8 @@ export async function createInstructorSession(
       date: meta.date ?? new Date().toISOString().split("T")[0],
       notes: JSON.stringify({ require_verification: !!meta["require_verification"] }),
       createdByUserId: createdByUserId ?? null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      customProtocol: (customProtocol ?? null) as any,
     },
   });
   return {

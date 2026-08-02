@@ -1,11 +1,11 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Copy, FlaskConical, Loader2, Share2, Upload } from "lucide-react";
+import { Check, CheckCircle2, Copy, FlaskConical, Loader2, Share2, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
-import type { ExperimentMeta, InstructorSession } from "@/lib/types";
+import type { ExperimentMeta, InstructorSession, Protocol } from "@/lib/types";
 
 export default function CreateSessionPage() {
   const [created, setCreated] = useState<InstructorSession | null>(null);
@@ -13,6 +13,10 @@ export default function CreateSessionPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pdfName, setPdfName] = useState<string | null>(null);
   const [pdfUploading, setPdfUploading] = useState(false);
+  // The AI-parsed protocol from the uploaded PDF — kept in full, not just the
+  // experiment_name, and sent along at "Generate session" so every student
+  // who joins actually gets these steps instead of a generic library one.
+  const [customProtocol, setCustomProtocol] = useState<Protocol | null>(null);
   const [form, setForm] = useState({ session_name: "", experiment_name: "", experiment_id: "", batch: "", department: "", institution: "", course_code: "", date: new Date().toISOString().split("T")[0], require_verification: false });
 
   const { data: experiments } = useQuery<ExperimentMeta[]>({ queryKey: ["experiments"], queryFn: async () => (await fetch("/api/experiments")).json() });
@@ -25,8 +29,9 @@ export default function CreateSessionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          experiment_name: form.experiment_name.trim() || exp?.name || "",
+          experiment_name: customProtocol ? customProtocol.experiment_name : form.experiment_name.trim() || exp?.name || "",
           experiment_id: form.experiment_id || undefined,
+          custom_protocol: customProtocol,
         }),
       });
       if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
@@ -162,6 +167,7 @@ export default function CreateSessionPage() {
               if (!file) return;
               setPdfName(file.name);
               setPdfUploading(true);
+              setCustomProtocol(null);
               try {
                 const base64 = await new Promise<string>((resolve, reject) => {
                   const reader = new FileReader();
@@ -169,17 +175,21 @@ export default function CreateSessionPage() {
                   reader.onerror = reject;
                   reader.readAsDataURL(file);
                 });
-                const tempId = crypto.randomUUID();
-                const res = await fetch("/api/protocol/parse", {
+                // A pure preview call — nothing is written to the database
+                // until "Generate session" actually creates it, and the full
+                // parsed protocol (not just the name) comes back so every
+                // student who later joins this code gets these real steps.
+                const res = await fetch("/api/protocol/preview", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ session_id: tempId, pdf_base64: base64 }),
+                  body: JSON.stringify({ pdf_base64: base64, experiment_id: form.experiment_id || undefined }),
                 });
                 if (!res.ok) throw new Error(`Server error: ${res.status}`);
                 const data = await res.json();
-                if (data.experiment_name) setForm((f) => ({ ...f, experiment_name: data.experiment_name }));
                 // Only claim a parse when the server actually structured the PDF.
                 if (data.parsed_from_pdf) {
+                  setCustomProtocol({ experiment_name: data.experiment_name, steps: data.steps });
+                  setForm((f) => ({ ...f, experiment_name: data.experiment_name }));
                   toast.success(`PDF parsed: ${data.experiment_name} · ${data.steps?.length ?? 0} steps`);
                 } else {
                   toast.warning(data.fallback_reason ?? "Could not parse that PDF — loaded the library experiment instead.", { duration: 6000 });
@@ -191,18 +201,37 @@ export default function CreateSessionPage() {
               }
             }}
           />
-          <FlaskConical size={22} className="mx-auto mb-1 text-[var(--color-brand)]" />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={pdfUploading}
-            className="font-semibold text-[var(--color-brand)] hover:underline disabled:opacity-50"
-          >
-            {pdfUploading ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <Upload size={14} className="mr-1 inline" />}
-            {pdfUploading ? "Parsing PDF…" : "Upload experiment PDF"}
-          </button>
-          {pdfName && <p className="mt-1 text-xs text-[var(--color-accent)]">{pdfName}</p>}
-          <p className="mt-0.5 text-xs">(optional — we&apos;ll parse it with AI and fill the experiment name)</p>
+          {customProtocol ? (
+            <>
+              <CheckCircle2 size={22} className="mx-auto mb-1 text-[var(--color-accent)]" />
+              <p className="font-semibold text-[var(--color-accent)]">
+                {customProtocol.steps.length}-step experiment ready from your PDF
+              </p>
+              <p className="mt-0.5 text-xs">Every student who joins this session gets these exact steps.</p>
+              <button
+                type="button"
+                onClick={() => { setCustomProtocol(null); setPdfName(null); if (inputRef.current) inputRef.current.value = ""; }}
+                className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+              >
+                <X size={12} /> Remove and use a library template instead
+              </button>
+            </>
+          ) : (
+            <>
+              <FlaskConical size={22} className="mx-auto mb-1 text-[var(--color-brand)]" />
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                disabled={pdfUploading}
+                className="font-semibold text-[var(--color-brand)] hover:underline disabled:opacity-50"
+              >
+                {pdfUploading ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : <Upload size={14} className="mr-1 inline" />}
+                {pdfUploading ? "Parsing PDF…" : "Upload experiment PDF"}
+              </button>
+              {pdfName && <p className="mt-1 text-xs text-[var(--color-muted)]">{pdfName}</p>}
+              <p className="mt-0.5 text-xs">(optional — AI reads it and builds the full step-by-step experiment)</p>
+            </>
+          )}
         </div>
 
         <button

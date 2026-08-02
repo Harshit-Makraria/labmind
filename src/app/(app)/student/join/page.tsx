@@ -35,9 +35,26 @@ function JoinInner() {
       const data = await res.json();
       if (!res.ok || data.error) { toast.error(data.error ?? "Invalid code"); setLoading(false); return; }
 
-      // Parse protocol so we have steps client-side
-      const protocol = await api.parseProtocol({ session_id: sessionId, experiment_id: data.experiment_id });
+      // If the instructor uploaded their own experiment PDF when creating
+      // this session, the join response already carries the full AI-parsed
+      // protocol — use it directly instead of fetching the generic library
+      // one, which is what every student used to get regardless.
+      const protocol = data.custom_protocol
+        ? {
+            ...data.custom_protocol,
+            session_id: sessionId,
+            experiment_id: data.experiment_id,
+            theoretical: data.theoretical,
+            description: null,
+            parsed_from_pdf: true,
+            fallback_reason: null,
+          }
+        : await api.parseProtocol({ session_id: sessionId, experiment_id: data.experiment_id });
       saveSession({ sessionId, protocol, currentStepIndex: 0 });
+
+      if (data.custom_protocol) {
+        toast.success(`Loaded your instructor's uploaded experiment — ${data.custom_protocol.steps.length} steps`);
+      }
 
       toast.success(`Joined ${data.session_name}`);
       router.push(`/lab/${sessionId}/overview`);

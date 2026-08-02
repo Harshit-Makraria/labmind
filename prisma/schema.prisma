@@ -138,6 +138,14 @@ model InstructorSession {
   date            String
   status          String       @default("active")
   notes           Json         @default("{}")
+  /// Full AI-parsed protocol (experiment_name + steps) when the instructor
+  /// uploaded their own experiment PDF at session-creation time. Null means
+  /// "use the library protocol for experimentId" — the previous behavior,
+  /// and still what a student joining gets when this is unset. When set,
+  /// every student who joins this code gets THIS protocol instead, so the
+  /// AI parse happens once (at creation) rather than being silently
+  /// discarded after only its experiment_name was kept.
+  customProtocol  Json?
   students        LabSession[]
   /// Owning instructor account. Nullable so pre-existing rows (seeded demo
   /// data, sessions created before this column existed) don't break — those

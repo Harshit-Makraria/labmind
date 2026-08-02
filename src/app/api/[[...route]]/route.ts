@@ -7,7 +7,7 @@ import { handle } from "hono/vercel";
 
 import { auth } from "@/auth";
 
-import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, SafetyCheckRequest, SafetyConflict, SessionAction, StepRecord, VisionCheckRequest } from "@/lib/types";
+import type { AgentChatRequest, AgentEvent, InterpretRequest, ParseProtocolRequest, Protocol, SafetyCheckRequest, SafetyConflict, SessionAction, StepRecord, VisionCheckRequest } from "@/lib/types";
 import { fingerprint, isDuplicate } from "@/server/tools/image-fingerprint";
 import { analysePacing } from "@/server/tools/pacing";
 import { assessRisk } from "@/server/tools/risk";
@@ -245,6 +245,30 @@ app.post("/protocol/parse", async (c) => {
   // different protocol has no matching description to show honestly.
   const description = parsedFromPdf ? null : exp.description;
   return c.json({ ...protocol, session_id: body.session_id, experiment_id: exp.id, theoretical: exp.theoretical, description, parsed_from_pdf: parsedFromPdf, fallback_reason: fallbackReason });
+});
+
+// Same parsing as above, but with NO session-store side effect — /protocol/
+// parse's upsertSession() call assumes a real (or soon-to-be-real) LabSession
+// behind session_id, which an instructor uploading a PDF while CREATING a
+// session doesn't have yet. Calling that route with a throwaway random id
+// (the previous approach) left a permanently orphaned LabSession row behind
+// on every upload. This is a pure {pdf, experiment_id} -> parsed protocol
+// call the instructor's create-session form can preview against safely, as
+// many times as they like, with nothing written to the database.
+app.post("/protocol/preview", async (c) => {
+  const body = await c.req.json<{ pdf_base64?: string; experiment_id?: string }>();
+  if (!body?.pdf_base64) return c.json({ error: "pdf_base64 required" }, 400);
+  const t0 = Date.now();
+  const exp = getExperiment(body.experiment_id);
+  const protocol = await parseProtocol(body.pdf_base64, body.experiment_id);
+  const parsedFromPdf = protocol.experiment_name !== exp.protocol.experiment_name;
+  const fallbackReason = parsedFromPdf
+    ? null
+    : effectiveDemo()
+      ? "No AI key configured — add one in AI Settings to parse your own PDF."
+      : "Could not read text from that PDF (it may be a scan). Loaded the library experiment instead.";
+  recordTrace("protocol_parser", "PDF preview", `${protocol.experiment_name} · ${protocol.steps.length} steps${parsedFromPdf ? " (from PDF)" : ""}`, Date.now() - t0);
+  return c.json({ ...protocol, experiment_id: exp.id, parsed_from_pdf: parsedFromPdf, fallback_reason: fallbackReason });
 });
 
 // ─── Safety check ────────────────────────────────────────────────────
@@ -778,10 +802,28 @@ app.patch("/instructor/sessions/:code", async (c) => {
   return c.json({ ok: true, status });
 });
 
+// Minimal shape check on a client-supplied protocol before trusting it —
+// this only ever arrives from the SAME instructor's own just-completed
+// /protocol/preview call (never entered by hand), but the endpoint that
+// creates a session accepting an arbitrary JSON blob still deserves a floor:
+// reject anything that isn't at least a named list of real steps.
+function isValidProtocolShape(x: unknown): x is Protocol {
+  if (!x || typeof x !== "object") return false;
+  const p = x as Record<string, unknown>;
+  return typeof p.experiment_name === "string" && Array.isArray(p.steps) && p.steps.length > 0;
+}
+
 app.post("/instructor/sessions", async (c) => {
   const body = await c.req.json();
   const experimentId = typeof body.experiment_id === "string" && body.experiment_id.trim() ? body.experiment_id.trim() : DEFAULT_EXPERIMENT_ID;
-  const experimentName = typeof body.experiment_name === "string" && body.experiment_name.trim() ? body.experiment_name.trim() : getExperiment(experimentId).name;
+  const customProtocol = isValidProtocolShape(body.custom_protocol) ? body.custom_protocol : null;
+  // A custom protocol's own parsed name wins over the form field — that's
+  // the whole point of uploading a PDF instead of typing a name.
+  const experimentName = customProtocol
+    ? customProtocol.experiment_name
+    : typeof body.experiment_name === "string" && body.experiment_name.trim()
+      ? body.experiment_name.trim()
+      : getExperiment(experimentId).name;
   const session = await createInstructorSession({
     session_name: body.session_name,
     experiment_id: experimentId,
@@ -792,7 +834,7 @@ app.post("/instructor/sessions", async (c) => {
     course_code: body.course_code ?? "",
     date: body.date ?? new Date().toISOString().split("T")[0],
     require_verification: !!body.require_verification,
-  } as Parameters<typeof createInstructorSession>[0], c.get("user").id);
+  } as Parameters<typeof createInstructorSession>[0], c.get("user").id, customProtocol);
   return c.json(session);
 });
 
@@ -984,6 +1026,19 @@ app.post("/student/join", async (c) => {
   }
   const exp = getExperiment(instrSession.experiment_id);
 
+  // If the instructor uploaded their own PDF at session-creation time, every
+  // student joining this code gets THAT parsed protocol instead of the
+  // library one for experiment_id — this is what actually makes the upload
+  // meaningful; previously the parsed steps were discarded and every student
+  // silently got the generic library experiment regardless.
+  const protocolRow = await db.instructorSession.findUnique({
+    where: { code: code.toUpperCase().trim() },
+    select: { customProtocol: true },
+  });
+  const customProtocol = (protocolRow?.customProtocol as unknown as Protocol | null) ?? null;
+  const totalSteps = customProtocol ? customProtocol.steps.length : exp.protocol.steps.length;
+  const experimentName = customProtocol ? customProtocol.experiment_name : exp.name;
+
   // Attribute the session to the AUTHENTICATED account, not to a typed-in name.
   // Previously studentName came straight from the join form, so a student could
   // record work under a classmate's name and nothing linked a session to a user
@@ -1000,16 +1055,26 @@ app.post("/student/join", async (c) => {
       id: session_id,
       studentName: attributedName,
       experimentId: exp.id,
-      experimentName: exp.name,
-      totalSteps: exp.protocol.steps.length,
+      experimentName,
+      totalSteps,
       instructorCode: code.toUpperCase(),
       userId: user?.id ?? null,
     },
     update: { instructorCode: code.toUpperCase(), studentName: attributedName, userId: user?.id ?? null },
   });
-  upsertSession({ sessionId: session_id, studentName: attributedName, experimentId: exp.id, experimentName: exp.name, totalSteps: exp.protocol.steps.length, instructorCode: code.toUpperCase() });
-  console.log(`[ROUTE /student/join] ✓ Joined: session_id=${session_id} experiment=${exp.id} user=${user?.email ?? "?"} name="${attributedName}" instructor_code=${code}`);
-  return c.json({ ok: true, experiment_id: exp.id, experiment_name: exp.name, session_name: instrSession.session_name });
+  upsertSession({ sessionId: session_id, studentName: attributedName, experimentId: exp.id, experimentName, totalSteps, instructorCode: code.toUpperCase() });
+  console.log(`[ROUTE /student/join] ✓ Joined: session_id=${session_id} experiment=${exp.id} user=${user?.email ?? "?"} name="${attributedName}" instructor_code=${code}${customProtocol ? " (custom protocol)" : ""}`);
+  return c.json({
+    ok: true,
+    experiment_id: exp.id,
+    experiment_name: experimentName,
+    session_name: instrSession.session_name,
+    custom_protocol: customProtocol,
+    // A custom protocol has no library "textbook answer" of its own — the
+    // base experiment's theoretical value is the best available reference,
+    // same fallback /protocol/parse already uses for a genuinely-parsed PDF.
+    theoretical: exp.theoretical,
+  });
 });
 
 // ─── Student history ─────────────────────────────────────────────────
