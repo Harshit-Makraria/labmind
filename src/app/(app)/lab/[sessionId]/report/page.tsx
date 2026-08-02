@@ -89,6 +89,7 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
 
         <Section title="Observations" number="5">
           {report.observations.length > 0 ? (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-black/12">
@@ -107,6 +108,7 @@ export default function ReportPage({ params }: { params: Promise<{ sessionId: st
                 ))}
               </tbody>
             </table>
+            </div>
           ) : <p className="text-sm text-[var(--color-muted)]">No recorded observations.</p>}
         </Section>
 

@@ -190,21 +190,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function Topbar({ title, role, meta, onMenu }: { title: string; role: Role; meta?: { provider: string; demo: boolean; keys_exhausted: boolean }; onMenu: () => void }) {
+  // Plain demo mode (not exhausted-keys demo) used to render two chips that
+  // said the same thing — the provider chip already reads "demo" in that
+  // state, and a separate "DEMO" chip next to it was pure duplication. On a
+  // narrow phone that redundant chip was often the one that got clipped past
+  // the screen edge. Folding demo styling into the provider chip itself
+  // removes a whole chip's worth of width instead of just hiding it.
+  const plainDemo = !!meta?.demo && !meta.keys_exhausted;
   return (
-    <header className="glass-topbar flex items-center justify-between px-4 py-3 md:px-6">
-      <div className="flex items-center gap-3">
-        <button onClick={onMenu} className="md:hidden text-[var(--color-navy)]" aria-label="Open menu">
+    <header className="glass-topbar flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-4 py-3 md:flex-nowrap md:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <button onClick={onMenu} className="md:hidden shrink-0 text-[var(--color-navy)]" aria-label="Open menu">
           <Menu size={22} />
         </button>
-        <h1 className="text-lg font-bold text-[var(--color-navy)]">{title}</h1>
+        <h1 className="truncate text-lg font-bold text-[var(--color-navy)]">{title}</h1>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         {role && (
           <span className={`chip ${role === "instructor" ? "bg-[var(--color-navy)]/10 text-[var(--color-navy)]" : "bg-[var(--color-accent)]/12 text-[var(--color-accent)]"}`}>
             <Users size={12} /> {role}
           </span>
         )}
-        <span className="chip bg-[var(--color-brand)]/10 text-[var(--color-brand)]">
+        <span className={`chip ${plainDemo ? "bg-[var(--color-warning)] text-white" : "bg-[var(--color-brand)]/10 text-[var(--color-brand)]"}`}>
           {meta && !meta.demo && !meta.keys_exhausted ? (
             <span className="live-dot" aria-hidden />
           ) : (
@@ -213,7 +220,6 @@ function Topbar({ title, role, meta, onMenu }: { title: string; role: Role; meta
           {meta?.provider ?? "…"}
         </span>
         {meta?.keys_exhausted && <span className="chip bg-red-500 text-white">KEY LIMIT</span>}
-        {meta?.demo && !meta.keys_exhausted && <span className="chip bg-[var(--color-warning)] text-white">DEMO</span>}
       </div>
     </header>
   );

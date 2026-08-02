@@ -487,7 +487,11 @@ body {
     backdrop-filter: blur(10px);
     border-top: 1px solid rgba(15, 41, 66, 0.1);
     display: grid;
-    grid-auto-flow: column;
+    /* Was grid-auto-flow: column with implicit (content-sized) columns, so
+       the widest label ("Dashboard") got a visibly bigger cell than the
+       others — an uneven, cramped-looking bottom bar. Explicit equal-width
+       columns give every tab the same footprint regardless of label length. */
+    grid-template-columns: repeat(4, 1fr);
     padding: 0.4rem;
   }
 }

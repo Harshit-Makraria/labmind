@@ -150,7 +150,13 @@ export default function InstructorDashboard() {
           </Link>
         </div>
         <div className="card overflow-hidden p-0">
-          <table className="w-full text-sm">
+          {/* This table used to just clip past its card boundary on a narrow
+              phone (overflow-hidden on the card, no scroll container) —
+              columns past "Status" were silently cut off, not just visually
+              cramped. Scrolling the table itself inside the still-rounded
+              card keeps every column reachable. */}
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[620px] text-sm">
             <thead className="border-b border-black/8 bg-[var(--color-surface)]">
               <tr>
                 {["Session name", "Experiment", "Code", "Students", "Status", ""].map((h) => (
@@ -182,6 +188,7 @@ export default function InstructorDashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </section>
 

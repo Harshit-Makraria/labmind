@@ -196,7 +196,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
             <span className="text-xs text-[var(--color-muted)]">Avg deviation: <strong>{avgDeviation}%</strong></span>
           )}
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-[var(--color-surface)]">
             <tr>
               {["Student", "Progress", "Deviation", "Safety", "Overrides", "Report"].map((h) => (
@@ -252,6 +253,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Analytics summary */}
