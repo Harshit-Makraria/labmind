@@ -218,7 +218,11 @@ export default function LandingPage() {
       </section>
 
       <footer className="border-t border-black/8 px-6 py-6 text-center text-sm text-[#5b6b7d]">
-        LabMind &middot; Team BitX &middot; Capgemini Exceller Agentify Buildathon 2026
+        <p>LabMind &middot; Team BitX &middot; Capgemini Exceller Agentify Buildathon 2026</p>
+        <p className="mt-2 flex justify-center gap-4">
+          <Link href="/privacy" className="hover:text-[#0f2942] hover:underline">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-[#0f2942] hover:underline">Terms of Service</Link>
+        </p>
       </footer>
     </div>
   );

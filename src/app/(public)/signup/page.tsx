@@ -177,6 +177,13 @@ export default function SignupPage() {
             {loading && <Loader2 size={18} className="animate-spin" />}
             {loading ? "Creating account…" : "Create account"}
           </button>
+
+          <p className="text-center text-xs text-[var(--color-muted)]">
+            By creating an account, you agree to LabMind&apos;s{" "}
+            <Link href="/terms" className="text-[var(--color-brand)] hover:underline">Terms of Service</Link>
+            {" "}and{" "}
+            <Link href="/privacy" className="text-[var(--color-brand)] hover:underline">Privacy Policy</Link>.
+          </p>
         </form>
 
         <p className="bg-[var(--color-card)] px-7 pb-7 text-center text-sm text-[var(--color-muted)]">

@@ -249,6 +249,28 @@ export interface SkipRequestSummary {
   seconds_remaining: number;
 }
 
+// ─── Profile ────────────────────────────────────────────────────────
+
+export interface ProfileData {
+  id: string;
+  name: string | null;
+  email: string;
+  role: "instructor" | "student";
+  created_at: string;
+  instructor_stats?: {
+    classes_created: number;
+    total_students: number;
+    verifications_resolved: number;
+    agreement: number | null;
+  };
+  student_stats?: {
+    experiments_started: number;
+    experiments_completed: number;
+    accurate_count: number;
+    avg_deviation: number | null;
+  };
+}
+
 export type SessionAction =
   | { type: "complete_step"; step_number: number }
   /** Solo/library sessions only (no instructorCode) — skips instantly. */

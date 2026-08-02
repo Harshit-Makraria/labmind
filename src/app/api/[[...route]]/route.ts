@@ -1123,6 +1123,114 @@ app.get("/lab/:sessionId/report", async (c) => {
   return c.json(await buildReport(sessionId));
 });
 
+// ─── Profile ───────────────────────────────────────────────────────────
+// Every route here acts on the CALLER's own account only — there is no
+// :userId param anywhere below, deliberately, so there's no ownership check
+// to get wrong: you can only ever read, edit, export, or delete yourself.
+app.get("/profile", async (c) => {
+  const authUser = c.get("user");
+  const user = await db.user.findUnique({
+    where: { id: authUser.id },
+    select: { id: true, name: true, email: true, role: true, createdAt: true },
+  });
+  if (!user) return c.json({ error: "Not found" }, 404);
+
+  const base = { id: user.id, name: user.name, email: user.email, role: user.role, created_at: user.createdAt.toISOString() };
+
+  if (user.role === "instructor") {
+    const [classesCreated, totalStudents, accuracy] = await Promise.all([
+      db.instructorSession.count({ where: { createdByUserId: user.id } }),
+      db.labSession.count({ where: { instructor: { createdByUserId: user.id } } }),
+      getAccuracyReport(user.id),
+    ]);
+    return c.json({
+      ...base,
+      instructor_stats: {
+        classes_created: classesCreated,
+        total_students: totalStudents,
+        verifications_resolved: accuracy.resolved,
+        agreement: accuracy.agreement,
+      },
+    });
+  }
+
+  const sessions = await db.labSession.findMany({ where: { userId: user.id }, select: { status: true, deviationPercent: true } });
+  const completed = sessions.filter((s) => s.status === "completed");
+  const accurate = completed.filter((s) => s.deviationPercent !== null && s.deviationPercent <= 5).length;
+  const deviations = completed.map((s) => s.deviationPercent).filter((d): d is number => d !== null);
+  const avgDeviation = deviations.length ? Math.round((deviations.reduce((a, b) => a + b, 0) / deviations.length) * 10) / 10 : null;
+  return c.json({
+    ...base,
+    student_stats: {
+      experiments_started: sessions.length,
+      experiments_completed: completed.length,
+      accurate_count: accurate,
+      avg_deviation: avgDeviation,
+    },
+  });
+});
+
+app.patch("/profile", async (c) => {
+  const authUser = c.get("user");
+  const { name } = await c.req.json<{ name?: string }>();
+  if (typeof name !== "string" || !name.trim()) return c.json({ error: "Name cannot be empty" }, 400);
+  const trimmed = name.trim().slice(0, 100);
+  await db.user.update({ where: { id: authUser.id }, data: { name: trimmed } });
+  return c.json({ ok: true, name: trimmed });
+});
+
+// Right to data portability (GDPR Art. 20 / India's DPDP Act) — a full
+// export of everything tied to this account, not just the profile fields.
+app.get("/profile/export", async (c) => {
+  const authUser = c.get("user");
+  const user = await db.user.findUnique({
+    where: { id: authUser.id },
+    select: { id: true, name: true, email: true, role: true, createdAt: true },
+  });
+  if (!user) return c.json({ error: "Not found" }, 404);
+
+  const labSessions = await db.labSession.findMany({ where: { userId: user.id } });
+  const instructorSessions =
+    user.role === "instructor" ? await db.instructorSession.findMany({ where: { createdByUserId: user.id } }) : [];
+
+  const payload = {
+    exported_at: new Date().toISOString(),
+    account: { id: user.id, name: user.name, email: user.email, role: user.role, created_at: user.createdAt.toISOString() },
+    lab_sessions: labSessions,
+    instructor_sessions: instructorSessions,
+  };
+  return new Response(JSON.stringify(payload, null, 2), {
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="labmind-data-${user.id}.json"`,
+    },
+  });
+});
+
+// Right to erasure. Deletes the account's OWN lab history (personal data),
+// but a class an instructor created isn't their personal data — it belongs
+// to the students who joined it, so it's orphaned (owner cleared) rather
+// than deleted, same as any other ownerless class under the ownership
+// scoping enforced everywhere else in this file.
+app.post("/profile/delete", async (c) => {
+  const authUser = c.get("user");
+  const { confirm } = await c.req.json<{ confirm?: string }>();
+  if (confirm !== "DELETE") return c.json({ error: 'Type "DELETE" to confirm' }, 400);
+
+  const ownSessions = await db.labSession.findMany({ where: { userId: authUser.id }, select: { id: true } });
+  const ids = ownSessions.map((s) => s.id);
+  if (ids.length) {
+    await db.verificationEntry.deleteMany({ where: { sessionId: { in: ids } } });
+    await db.agentDecision.deleteMany({ where: { sessionId: { in: ids } } });
+    await db.auditLogEntry.deleteMany({ where: { sessionId: { in: ids } } });
+    await db.labSession.deleteMany({ where: { id: { in: ids } } });
+  }
+  await db.instructorSession.updateMany({ where: { createdByUserId: authUser.id }, data: { createdByUserId: null } });
+  await db.user.delete({ where: { id: authUser.id } });
+
+  return c.json({ ok: true });
+});
+
 // Every verb used by a Hono route MUST be re-exported here — Next.js returns
 // 405 for any verb it doesn't see, before the request ever reaches Hono.
 // PATCH was missing, which silently broke saving AI settings and ending a session.

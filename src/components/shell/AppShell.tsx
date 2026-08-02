@@ -56,6 +56,7 @@ function titleFor(path: string): string {
   if (path.includes("/lab"))                     return "Lab Session";
   if (path.includes("/dashboard"))               return "Instructor Console";
   if (path.includes("/settings"))               return "AI Settings";
+  if (path.includes("/profile"))                return "Profile";
   return "LabMind";
 }
 
@@ -139,7 +140,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className="px-3 pb-4">
           {!collapsed && userName && (
-            <div className="mb-2 flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2">
+            <Link href="/profile" className="mb-2 flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2 transition-colors hover:bg-white/14">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white">
                 {userName.slice(0, 2).toUpperCase()}
               </div>
@@ -147,7 +148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <p className="truncate text-sm font-semibold text-white">{userName}</p>
                 <p className="text-[11px] capitalize text-white/50">{role}</p>
               </div>
-            </div>
+            </Link>
           )}
 
           <button
@@ -272,7 +273,7 @@ function MobileNavDrawer({
         </div>
 
         {userName && (
-          <div className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2">
+          <Link href="/profile" onClick={onClose} className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-white/8 px-3 py-2 transition-colors hover:bg-white/14">
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-xs font-bold">
               {userName.slice(0, 2).toUpperCase()}
             </div>
@@ -280,7 +281,7 @@ function MobileNavDrawer({
               <p className="truncate text-sm font-semibold">{userName}</p>
               <p className="text-[11px] capitalize text-white/50">{role}</p>
             </div>
-          </div>
+          </Link>
         )}
 
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3">

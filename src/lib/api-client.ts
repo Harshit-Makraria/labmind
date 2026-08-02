@@ -10,6 +10,7 @@ import type {
   InterpretResult,
   ParseProtocolRequest,
   ParseProtocolResponse,
+  ProfileData,
   SafetyCheckRequest,
   SafetyResult,
   SessionAction,
@@ -44,6 +45,21 @@ async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
       res.status,
       parsed,
     );
+  }
+  return res.json() as Promise<TRes>;
+}
+
+async function patch<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
+  const res = await fetch(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(text); } catch { /* non-JSON error body */ }
+    throw new ApiError((parsed.error as string) ?? `${path} failed: ${res.status}`, res.status, parsed);
   }
   return res.json() as Promise<TRes>;
 }
@@ -110,6 +126,10 @@ export const api = {
     post<Record<string, never>, { ok: boolean; step_number: number }>(`/api/instructor/skip-requests/${sessionId}/approve`, {}),
   denySkipRequest: (sessionId: string) =>
     post<Record<string, never>, { ok: boolean }>(`/api/instructor/skip-requests/${sessionId}/deny`, {}),
+
+  profile: () => get<ProfileData>("/api/profile"),
+  updateProfileName: (name: string) => patch<{ name: string }, { ok: boolean; name: string }>("/api/profile", { name }),
+  deleteAccount: () => post<{ confirm: string }, { ok: boolean }>("/api/profile/delete", { confirm: "DELETE" }),
 };
 
 /**
