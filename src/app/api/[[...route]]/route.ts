@@ -718,8 +718,11 @@ app.get("/dashboard/verify", (c) => {
   return c.json({ ok: passcode === getConfig().instructorPasscode });
 });
 
+// TraceSpan has no sessionId (pure tool-latency telemetry — tool name,
+// generic in/out summaries, no student/class link), so unlike decisions
+// below there is nothing to scope it by; it's genuinely app-wide.
 app.get("/dashboard/traces", async (c) => c.json(await getTracesFromDB()));
-app.get("/dashboard/decisions", async (c) => c.json(await getAgentDecisionsFromDB()));
+app.get("/dashboard/decisions", async (c) => c.json(await getAgentDecisionsFromDB(c.get("user").id)));
 
 // ─── Agent chat (SSE) ────────────────────────────────────────────────
 app.post("/agent/chat", async (c) => {
@@ -755,8 +758,9 @@ app.post("/agent/chat", async (c) => {
 // Every route below is scoped to classes the calling instructor actually
 // created (instructorOwnsCode) — otherwise any instructor account could
 // read, export, or mutate any other instructor's cohort by guessing/knowing
-// its join code. Ownerless rows (created before ownership tracking existed)
-// stay visible to everyone rather than becoming inaccessible.
+// its join code. The one exception is the shared demo class
+// (DEMO_INSTRUCTOR_CODE); every other ownerless row is owner-only, not
+// visible to everyone — see instructorOwnsCode's own doc comment.
 app.get("/instructor/sessions", async (c) => c.json(await listInstructorSessions(c.get("user").id)));
 app.get("/instructor/sessions/:code", async (c) => {
   const code = c.req.param("code");
@@ -875,7 +879,7 @@ app.get("/instructor/sessions/:code/students/export", async (c) => {
 
 // Instructor decisions are ground truth — aggregate them into a live accuracy
 // figure rather than discarding them.
-app.get("/instructor/accuracy", async (c) => c.json(await getAccuracyReport()));
+app.get("/instructor/accuracy", async (c) => c.json(await getAccuracyReport(c.get("user").id)));
 
 app.get("/instructor/verify", async (c) => {
   const status = c.req.query("status") as "pending" | "approved" | "rejected" | undefined;

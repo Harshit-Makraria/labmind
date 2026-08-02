@@ -11,11 +11,16 @@ import "server-only";
 import { db } from "@/server/db";
 import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import type { AccuracyBucket, AccuracyReport } from "@/lib/types";
+import { DEMO_INSTRUCTOR_CODE } from "@/server/store/code-store";
 
 const pct = (n: number, d: number) => (d === 0 ? null : Math.round((n / d) * 1000) / 1000);
 
-export async function getAccuracyReport(): Promise<AccuracyReport> {
+/** Was unscoped — every instructor got the same number, mixing every OTHER instructor's verification decisions into what read as "your class's AI accuracy." Scoped the same way as listVerifications. */
+export async function getAccuracyReport(ownerUserId?: string): Promise<AccuracyReport> {
   const rows = await db.verificationEntry.findMany({
+    where: ownerUserId
+      ? { session: { instructor: { OR: [{ createdByUserId: ownerUserId }, { code: DEMO_INSTRUCTOR_CODE }] } } }
+      : undefined,
     select: { status: true, aiConfidence: true },
   });
 

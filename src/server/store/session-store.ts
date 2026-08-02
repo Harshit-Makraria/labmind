@@ -587,8 +587,26 @@ export function getAgentDecisions(): AgentDecision[] {
   return store().decisions;
 }
 
-export async function getAgentDecisionsFromDB(): Promise<AgentDecision[]> {
-  const rows = await db.agentDecision.findMany({ orderBy: { createdAt: "desc" }, take: 60 });
+/**
+ * Was unscoped — showed every instructor the agent's reasoning (plan/outcome
+ * text) on every OTHER instructor's students' sessions too. AgentDecision
+ * only stores a plain sessionId string, no Prisma relation to LabSession, so
+ * this needs a two-step lookup rather than a nested `where` join.
+ */
+export async function getAgentDecisionsFromDB(ownerUserId?: string): Promise<AgentDecision[]> {
+  let sessionIdFilter: { in: string[] } | undefined;
+  if (ownerUserId) {
+    const owned = await db.labSession.findMany({
+      where: { instructor: { OR: [{ createdByUserId: ownerUserId }, { code: DEMO_INSTRUCTOR_CODE }] } },
+      select: { id: true },
+    });
+    sessionIdFilter = { in: owned.map((s) => s.id) };
+  }
+  const rows = await db.agentDecision.findMany({
+    where: sessionIdFilter ? { sessionId: sessionIdFilter } : undefined,
+    orderBy: { createdAt: "desc" },
+    take: 60,
+  });
   return rows.map((r) => ({
     id: r.id,
     session_id: r.sessionId,
