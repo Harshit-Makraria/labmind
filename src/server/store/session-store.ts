@@ -384,6 +384,14 @@ export async function allSummariesFromDB(ownerUserId?: string): Promise<SessionS
       ? { OR: [{ instructorCode: null }, { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } }] }
       : undefined,
     orderBy: { updatedAt: "desc" },
+    // This is polled every few seconds by every open instructor tab — select
+    // only what a summary needs, not the growing reagentHistory/safetyLog/
+    // notes JSON blobs that pile up over a session's lifetime.
+    select: {
+      id: true, studentName: true, experimentId: true, experimentName: true,
+      currentStep: true, totalSteps: true, status: true, lastVisionPass: true,
+      deviationPercent: true, safetyAlertCount: true, steps: true, updatedAt: true,
+    },
   });
   return rows.map((row) => {
     const steps = (row.steps as unknown as StepRecord[]) ?? [];

@@ -657,6 +657,12 @@ app.get("/instructor/sessions/:code/students", async (c) => {
   const rows = await db.labSession.findMany({
     where: { instructorCode: code },
     orderBy: { updatedAt: "desc" },
+    // Polled every few seconds by the class bench view — only what's rendered.
+    select: {
+      id: true, studentName: true, experimentId: true, experimentName: true,
+      currentStep: true, totalSteps: true, status: true, lastVisionPass: true,
+      deviationPercent: true, safetyAlertCount: true, steps: true, updatedAt: true,
+    },
   });
   return c.json(rows.map((row) => {
     const steps = (row.steps as unknown as { flagged?: boolean; manual_override?: boolean }[]) ?? [];

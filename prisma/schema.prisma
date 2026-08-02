@@ -95,6 +95,10 @@ model LabSession {
   user             User?               @relation(fields: [userId], references: [id])
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+
+  @@index([instructorCode])
+  @@index([userId])
+  @@index([experimentId])
 }
 
 /// Append-only tamper-evident safety log. Rows are only ever INSERTed by
@@ -154,6 +158,9 @@ model VerificationEntry {
   instructorComment String?
   submittedAt       DateTime   @default(now())
   resolvedAt        DateTime?
+
+  @@index([sessionId])
+  @@index([status])
 }
 
 model AgentDecision {

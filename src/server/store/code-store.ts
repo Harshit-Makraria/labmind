@@ -195,7 +195,7 @@ export async function addStudentToSession(code: string, studentSessionId: string
 
 function rowToEntry(row: {
   id: string; sessionId: string; studentName: string; stepNumber: number;
-  imageBase64: string; aiReading: number | null; aiConfidence: number; aiMessage: string | null;
+  imageBase64?: string; aiReading: number | null; aiConfidence: number; aiMessage: string | null;
   submittedAt: Date; status: string; instructorComment: string | null; resolvedAt: Date | null;
 }): VerificationEntry {
   return {
@@ -203,7 +203,7 @@ function rowToEntry(row: {
     session_id: row.sessionId,
     student_name: row.studentName,
     step_number: row.stepNumber,
-    image_base64: row.imageBase64,
+    image_base64: row.imageBase64 ?? "",
     ai_reading: row.aiReading,
     ai_confidence: row.aiConfidence,
     ai_message: row.aiMessage ?? "",
@@ -232,25 +232,54 @@ export async function submitVerification(
   return rowToEntry(row);
 }
 
+const BASE_FIELDS = {
+  id: true, sessionId: true, studentName: true, stepNumber: true,
+  aiReading: true, aiConfidence: true, aiMessage: true, submittedAt: true,
+  status: true, instructorComment: true, resolvedAt: true,
+  session: { select: { experimentId: true } },
+} as const;
+
 /**
  * Verification-queue entries scoped to this instructor's own classes. Joins
  * through the student's session → instructorCode → InstructorSession owner,
  * since VerificationEntry itself has no direct owner column. Ownerless
  * (pre-ownership) classes are included for everyone, same rule as
  * listInstructorSessions/instructorOwnsCode.
+ *
+ * Resolved entries never render their photo (the "Resolved" list in the UI
+ * is text-only) but the base64 image column is the single biggest field on
+ * this row, and this endpoint gets polled every few seconds — so only
+ * pending entries (the ones actually shown with a photo) fetch imageBase64;
+ * resolved rows skip it, keeping the payload from growing unbounded as a
+ * class accumulates history.
  */
 export async function listVerifications(status?: VerificationStatus, ownerUserId?: string): Promise<VerificationEntry[]> {
-  const rows = await db.verificationEntry.findMany({
-    where: {
-      ...(status ? { status } : {}),
-      ...(ownerUserId
-        ? { session: { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } } }
-        : {}),
-    },
-    orderBy: { submittedAt: "desc" },
-    include: { session: { select: { experimentId: true } } },
-  });
-  return rows.map((row) => ({ ...rowToEntry(row), unit: unitFor(row.session.experimentId, row.stepNumber) }));
+  const ownerWhere = ownerUserId
+    ? { session: { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } } }
+    : {};
+
+  if (status) {
+    const rows = await db.verificationEntry.findMany({
+      where: { status, ...ownerWhere },
+      orderBy: { submittedAt: "desc" },
+      select: { ...BASE_FIELDS, imageBase64: status === "pending" },
+    });
+    return rows.map((row) => ({ ...rowToEntry(row), unit: unitFor(row.session.experimentId, row.stepNumber) }));
+  }
+
+  const [pendingRows, resolvedRows] = await Promise.all([
+    db.verificationEntry.findMany({
+      where: { status: "pending", ...ownerWhere },
+      orderBy: { submittedAt: "desc" },
+      select: { ...BASE_FIELDS, imageBase64: true },
+    }),
+    db.verificationEntry.findMany({
+      where: { status: { not: "pending" }, ...ownerWhere },
+      orderBy: { submittedAt: "desc" },
+      select: { ...BASE_FIELDS, imageBase64: false },
+    }),
+  ]);
+  return [...pendingRows, ...resolvedRows].map((row) => ({ ...rowToEntry(row), unit: unitFor(row.session.experimentId, row.stepNumber) }));
 }
 
 /** Does this instructor own the class the given verification entry's student session belongs to? */
