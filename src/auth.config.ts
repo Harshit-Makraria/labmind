@@ -2,7 +2,12 @@ import type { NextAuthConfig } from "next-auth";
 
 export const authConfig = {
   pages: { signIn: "/auth", error: "/auth" },
-  session: { strategy: "jwt" as const },
+  // Explicit rather than relying on NextAuth's default: a session should
+  // stay signed in until the user hits Sign out or 30 days pass, not until
+  // some framework default quietly changes underneath us. updateAge keeps
+  // the JWT's expiry sliding forward on activity, so an actively-used
+  // session doesn't hit the 30-day wall mid-lab-session either.
+  session: { strategy: "jwt" as const, maxAge: 30 * 24 * 60 * 60, updateAge: 24 * 60 * 60 },
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;

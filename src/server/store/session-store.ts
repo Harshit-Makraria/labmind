@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types";
 import { db } from "@/server/db";
 import { AUDIT_GENESIS_HASH, hashAuditEntry } from "@/server/tools/audit-chain";
+import { DEMO_INSTRUCTOR_CODE } from "@/server/store/code-store";
 
 export interface StoredSession {
   sessionId: string;
@@ -458,13 +459,20 @@ export function allSummaries(): SessionSummary[] {
 /**
  * The instructor "bench wall" — scoped to this instructor's own classes.
  * Joins through instructorCode → InstructorSession.createdByUserId since
- * LabSession has no direct owner column of its own; ownerless (pre-ownership)
- * classes and un-joined sessions remain visible to everyone.
+ * LabSession has no direct owner column of its own.
+ *
+ * This used to also include every session with NO instructor at all
+ * (instructorCode: null — a student working solo from the library) and
+ * every OTHER instructor's ownerless class, both visible to every instructor
+ * account. Neither makes sense: a solo student's session was never part of
+ * any instructor's class, and an ownerless class belonging to a different
+ * instructor is exactly the leak this scoping exists to prevent. Only the
+ * shared demo class (DEMO_INSTRUCTOR_CODE) still shows up for everyone.
  */
 export async function allSummariesFromDB(ownerUserId?: string): Promise<SessionSummary[]> {
   const rows = await db.labSession.findMany({
     where: ownerUserId
-      ? { OR: [{ instructorCode: null }, { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } }] }
+      ? { instructor: { OR: [{ createdByUserId: ownerUserId }, { code: DEMO_INSTRUCTOR_CODE }] } }
       : undefined,
     orderBy: { updatedAt: "desc" },
     // This is polled every few seconds by every open instructor tab — select
@@ -528,9 +536,12 @@ export async function listPendingSkipRequests(ownerUserId?: string): Promise<Ski
     where: {
       skipRequestStep: { not: null },
       skipRequestAt: { gte: cutoff },
-      ...(ownerUserId
-        ? { OR: [{ instructorCode: null }, { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } }] }
-        : {}),
+      // A skip request only ever exists on an instructor-linked session
+      // (request_skip falls back to an instant skip otherwise, never
+      // setting these fields), so there's no "instructorCode: null" case to
+      // handle here — just scope to this instructor's own classes plus the
+      // shared demo one.
+      ...(ownerUserId ? { instructor: { OR: [{ createdByUserId: ownerUserId }, { code: DEMO_INSTRUCTOR_CODE }] } } : {}),
     },
     select: { id: true, studentName: true, skipRequestStep: true, skipRequestAt: true },
     orderBy: { skipRequestAt: "asc" },

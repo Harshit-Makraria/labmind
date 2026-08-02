@@ -20,15 +20,25 @@ function unitFor(experimentId: string, stepNumber: number): string {
 
 // ─── Seed ────────────────────────────────────────────────────────────
 
+/**
+ * The one InstructorSession every instructor account is meant to see
+ * regardless of who created it — a built-in sandbox to explore the app with,
+ * seeded once below. This is the ONLY legitimate "shared across every
+ * instructor" row; anything else with no owner is orphaned data (e.g. a
+ * class created before ownership tracking existed, or a bug), not something
+ * every instructor should be able to browse into.
+ */
+export const DEMO_INSTRUCTOR_CODE = "LAB-0042";
+
 export async function seedDemoData() {
-  const exists = await db.instructorSession.findUnique({ where: { code: "LAB-0042" } });
+  const exists = await db.instructorSession.findUnique({ where: { code: DEMO_INSTRUCTOR_CODE } });
   if (exists) return;
 
   // Demo sessions
   await db.instructorSession.createMany({
     data: [
       {
-        code: "LAB-0042",
+        code: DEMO_INSTRUCTOR_CODE,
         sessionName: "Chem Lab 3A — Titration",
         experimentId: "acid-base-titration",
         experimentName: "Acid-Base Titration",
@@ -43,7 +53,7 @@ export async function seedDemoData() {
   // Demo lab session for verification foreign key
   await db.labSession.createMany({
     data: [
-      { id: "demo-anita", studentName: "Anita R.", experimentId: "acid-base-titration", experimentName: "Acid-Base Titration", totalSteps: 8, instructorCode: "LAB-0042" },
+      { id: "demo-anita", studentName: "Anita R.", experimentId: "acid-base-titration", experimentName: "Acid-Base Titration", totalSteps: 8, instructorCode: DEMO_INSTRUCTOR_CODE },
     ],
     skipDuplicates: true,
   });
@@ -102,14 +112,18 @@ export async function getInstructorSession(code: string): Promise<InstructorSess
 }
 
 /**
- * Sessions owned by this instructor. Rows created before ownership tracking
- * existed have createdByUserId === null — those are ownerless/shared demo
- * data, not "belongs to nobody", so they still show up for every instructor
- * rather than silently vanishing.
+ * Sessions owned by this instructor, plus the one shared demo class. This
+ * used to also include every OTHER ownerless row (createdByUserId === null)
+ * on the theory that pre-ownership classes shouldn't vanish — but in
+ * practice that meant any class created before ownership tracking existed
+ * (including another instructor's real students) was visible to every
+ * instructor account. Only the deliberately-shared demo code gets that
+ * treatment now; a genuinely orphaned class is owner-only-unreachable, not
+ * everyone-reachable.
  */
 export async function listInstructorSessions(ownerUserId?: string): Promise<InstructorSession[]> {
   const rows = await db.instructorSession.findMany({
-    where: ownerUserId ? { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } : undefined,
+    where: ownerUserId ? { OR: [{ createdByUserId: ownerUserId }, { code: DEMO_INSTRUCTOR_CODE }] } : undefined,
     orderBy: { createdAt: "desc" },
     include: { students: { select: { id: true } } },
   });
@@ -170,18 +184,24 @@ export async function createInstructorSession(
 }
 
 /**
- * Does this instructor own the class behind this code? Ownerless rows
- * (createdByUserId null — pre-ownership demo data) are treated as shared, so
- * they don't lock out every instructor after this feature shipped.
+ * Does this instructor own the class behind this code? Only the shared demo
+ * code is open to everyone — a genuinely ownerless row (createdByUserId
+ * null, e.g. a class created before ownership tracking existed) used to be
+ * treated as owned-by-anyone too, which meant any instructor could open,
+ * export, or approve/deny actions on any other instructor's orphaned class.
+ * Now it's owner-only, same as any other class; nobody happens to be able to
+ * manage a truly orphaned one, which is the safe default.
  */
 export async function instructorOwnsCode(code: string, userId: string): Promise<boolean> {
+  const normalized = code.toUpperCase().trim();
+  if (normalized === DEMO_INSTRUCTOR_CODE) return true;
   const row = await db.instructorSession.findUnique({
-    where: { code: code.toUpperCase().trim() },
+    where: { code: normalized },
     select: { createdByUserId: true } as Record<string, boolean>,
   });
   if (!row) return false;
   const owner = (row as Record<string, unknown>)["createdByUserId"] as string | null;
-  return owner === null || owner === userId;
+  return owner === userId;
 }
 
 export async function addStudentToSession(code: string, studentSessionId: string) {
@@ -242,8 +262,9 @@ const BASE_FIELDS = {
 /**
  * Verification-queue entries scoped to this instructor's own classes. Joins
  * through the student's session → instructorCode → InstructorSession owner,
- * since VerificationEntry itself has no direct owner column. Ownerless
- * (pre-ownership) classes are included for everyone, same rule as
+ * since VerificationEntry itself has no direct owner column. Only the shared
+ * demo class is visible across every instructor account — a genuinely
+ * ownerless (orphaned) class is owner-only, same rule as
  * listInstructorSessions/instructorOwnsCode.
  *
  * Resolved entries never render their photo (the "Resolved" list in the UI
@@ -255,7 +276,7 @@ const BASE_FIELDS = {
  */
 export async function listVerifications(status?: VerificationStatus, ownerUserId?: string): Promise<VerificationEntry[]> {
   const ownerWhere = ownerUserId
-    ? { session: { instructor: { OR: [{ createdByUserId: ownerUserId }, { createdByUserId: null }] } } }
+    ? { session: { instructor: { OR: [{ createdByUserId: ownerUserId }, { code: DEMO_INSTRUCTOR_CODE }] } } }
     : {};
 
   if (status) {
