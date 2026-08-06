@@ -34,9 +34,46 @@ export interface ProtocolStep {
   affects_steps?: number[];
 }
 
+/**
+ * What kind of answer an experiment actually produces.
+ *
+ * Not every lab ends in a number. A titration does ("0.1 mol/L"), but a
+ * microscopy practical ends in a category ("cardiac muscle"), a circuit test
+ * ends in a yes/no, and a programming lab ends in a description of what the
+ * output showed. Grading all four as "percent deviation from a float" is why
+ * anything that wasn't a chemistry measurement couldn't be graded at all.
+ */
+export type ResultKind = "numeric" | "categorical" | "boolean" | "qualitative" | "none";
+
+export interface ExpectedResult {
+  kind: ResultKind;
+  /** What the student is measuring/identifying — "HCl concentration", "Tissue type". */
+  label: string;
+  /** numeric only — the target value. */
+  value?: number | null;
+  unit?: string | null;
+  /** numeric only — absolute tolerance in `unit`, when the protocol states one. */
+  tolerance?: number | null;
+  /** categorical only — the choices offered to the student. */
+  options?: string[];
+  /** categorical/boolean/qualitative — the answer key. */
+  correct?: string | string[] | boolean | null;
+  /** qualitative only — how a free-text answer should be judged. */
+  rubric?: string | null;
+}
+
 export interface Protocol {
   experiment_name: string;
   steps: ProtocolStep[];
+  /**
+   * The experiment's OWN expected result. Present on AI-parsed and manually
+   * built protocols; absent on the built-in library protocols, which carry it
+   * on `Experiment.theoretical` instead (resolveExpectedResult() bridges the
+   * two). Without this, a custom uploaded experiment had no expected value of
+   * its own and was graded against whatever library experiment it was filed
+   * under — so every deviation figure for a custom experiment was wrong.
+   */
+  expected_result?: ExpectedResult | null;
 }
 
 export type ExperimentDomain = "chemistry" | "biology" | "kinetics";
@@ -180,14 +217,30 @@ export type ResultSeverity = "green" | "amber" | "red";
 
 export interface InterpretRequest {
   session_id: string;
+  /**
+   * Numeric result. Kept required-ish for backwards compatibility with the
+   * existing numeric flow; non-numeric experiments send `student_answer`
+   * instead and leave this at 0.
+   */
   student_result: number;
+  /** Non-numeric result — the selected option, the boolean, or the free text. */
+  student_answer?: string | boolean | null;
   unit: string;
   theoretical_value: number;
   experiment_id?: string;
 }
 
 export interface InterpretResult {
-  deviation_percent: number;
+  /**
+   * Percent deviation from the expected value. null for non-numeric results,
+   * where "how far off" isn't a meaningful question — those report `correct`
+   * instead.
+   */
+  deviation_percent: number | null;
+  /** Non-numeric grading outcome. null for numeric results. */
+  correct?: boolean | null;
+  /** Which kind of grading actually ran, so the client renders the right thing. */
+  result_kind?: ResultKind;
   severity: ResultSeverity;
   diagnosis: string;
   improvement: string;

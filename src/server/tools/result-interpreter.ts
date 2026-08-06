@@ -6,8 +6,9 @@
  * green/amber/red by magnitude and tailors the root cause to magnitude+direction.
  */
 import "server-only";
-import type { InterpretRequest, InterpretResult, ResultSeverity } from "@/lib/types";
+import type { ExpectedResult, InterpretRequest, InterpretResult, ResultSeverity } from "@/lib/types";
 import { getExperiment } from "@/server/experiments";
+import { gradeResult } from "@/server/tools/expected-result";
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -23,9 +24,62 @@ interface Copy {
   learning_point: string;
 }
 
+/**
+ * Grade a non-numeric experiment — a microscopy identification, a circuit
+ * yes/no, a recorded observation. These have no "percent off", so they get a
+ * correct/incorrect (or needs-review) verdict and coaching that talks about the
+ * answer rather than about measurement technique.
+ */
+export function interpretUniversal(expected: ExpectedResult, submitted: { numeric?: number | null; answer?: string | boolean | null }, req: InterpretRequest): InterpretResult {
+  // Numeric still flows through the original, experiment-aware coaching engine
+  // below — that copy is genuinely good and stays exactly as it was.
+  if (expected.kind === "numeric") {
+    return interpret({ ...req, theoretical_value: expected.value ?? 0 });
+  }
+
+  const outcome = gradeResult(expected, submitted);
+  const label = expected.label || "result";
+
+  if (outcome.kind === "none") {
+    return {
+      deviation_percent: null, correct: null, result_kind: "none", severity: "green",
+      diagnosis: "This experiment doesn't record a final measured result — your step-by-step work is the submission.",
+      improvement: "Make sure every step's evidence is uploaded and verified.",
+      learning_point: "Some practicals are assessed on technique and observation rather than a single final number.",
+    };
+  }
+
+  if (outcome.kind === "qualitative") {
+    return {
+      deviation_percent: null, correct: null, result_kind: "qualitative", severity: "amber",
+      diagnosis: `Your ${label} has been recorded and sent to your instructor for review. ${outcome.comparison}`,
+      improvement: expected.rubric ? `Your instructor is looking for: ${expected.rubric}` : "Be specific about what you actually observed, not what you expected to observe.",
+      learning_point: "Written observations are graded on accuracy and detail — describe what was visible, then interpret it.",
+    };
+  }
+
+  // categorical / boolean — a real right-or-wrong answer.
+  const correct = outcome.correct === true;
+  return {
+    deviation_percent: null,
+    correct: outcome.correct,
+    result_kind: outcome.kind,
+    severity: correct ? "green" : "red",
+    diagnosis: correct
+      ? `Correct — your ${label} matches the expected answer. ${outcome.comparison}`
+      : `Not quite. ${outcome.comparison}`,
+    improvement: correct
+      ? "Good identification — check that your reasoning matches your observation, not just the answer."
+      : `Re-examine your evidence for this step before concluding. Compare what you actually observed against the criteria for each option.`,
+    learning_point: correct
+      ? "A correct identification is only complete when you can say which observed features led you to it."
+      : "An incorrect identification usually traces back to one missed observable feature — find it rather than guessing again.",
+  };
+}
+
 export function interpret(req: InterpretRequest): InterpretResult {
   const theo = req.theoretical_value;
-  const deviation = theo !== 0 ? round1((Math.abs(req.student_result - theo) / theo) * 100) : 0;
+  const deviation = theo !== 0 ? round1((Math.abs(req.student_result - theo) / Math.abs(theo)) * 100) : 0;
   const severity = grade(deviation);
   const under = req.student_result < theo;
   const exp = getExperiment(req.experiment_id);
@@ -37,7 +91,7 @@ export function interpret(req: InterpretRequest): InterpretResult {
     exp.id === "aur-experiment"
       ? aurCopy(severity, under, deviation, req.student_result, req.theoretical_value, req.unit)
       : byDomain(exp.domain, severity, under, deviation, req.student_result, req.theoretical_value, req.unit);
-  return { deviation_percent: deviation, severity, ...copy };
+  return { deviation_percent: deviation, correct: null, result_kind: "numeric", severity, ...copy };
 }
 
 function aurCopy(severity: ResultSeverity, under: boolean, deviation: number, measured: number, expected: number, unit: string): Copy {

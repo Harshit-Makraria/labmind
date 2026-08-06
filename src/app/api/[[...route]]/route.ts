@@ -21,7 +21,8 @@ import { AGENT_TOOL_NAMES } from "@/server/agent/orchestrator";
 import { flagDownstreamStepsFor } from "@/server/agent/tools";
 import { checkSafety } from "@/server/tools/safety";
 import { checkVision } from "@/server/tools/vision";
-import { interpret } from "@/server/tools/result-interpreter";
+import { interpretUniversal } from "@/server/tools/result-interpreter";
+import { resolveExpectedResult } from "@/server/tools/expected-result";
 import { parseProtocol } from "@/server/tools/protocol-parser";
 import { buildLearningSummary, buildReport } from "@/server/tools/summary";
 import { MOCK_SESSIONS } from "@/server/data/mock-sessions";
@@ -537,8 +538,13 @@ app.post("/results/interpret", async (c) => {
   // resolving experiment_id from the session's own DB row when available, so
   // a client can't lie about that either.
   let experimentId = body.experiment_id;
+  // The instructor's own uploaded/hand-built protocol for this session, when
+  // there is one. This is what makes a custom experiment gradeable against ITS
+  // OWN expected result instead of against the library experiment it happens
+  // to be filed under.
+  let sessionProtocol: Protocol | null = null;
   if (body.session_id) {
-    const row = await db.labSession.findUnique({ where: { id: body.session_id }, select: { experimentId: true } });
+    const row = await db.labSession.findUnique({ where: { id: body.session_id }, select: { experimentId: true, instructorCode: true } });
     // A session_id that doesn't resolve (deleted/expired session, stale deep
     // link) must not silently fall back to a default experiment — that
     // previously graded e.g. a gel-electrophoresis reading against
@@ -546,9 +552,18 @@ app.post("/results/interpret", async (c) => {
     // authoritative 200 result.
     if (!row) return c.json({ error: "Session not found" }, 404);
     experimentId = row.experimentId;
+    if (row.instructorCode) {
+      const instr = await db.instructorSession.findUnique({ where: { code: row.instructorCode }, select: { customProtocol: true } });
+      sessionProtocol = (instr?.customProtocol as unknown as Protocol | null) ?? null;
+    }
   }
-  const theoreticalValue = getExperiment(experimentId).theoretical.value;
-  const result = interpret({ ...body, experiment_id: experimentId, theoretical_value: theoreticalValue });
+  const experiment = getExperiment(experimentId);
+  const expected = resolveExpectedResult(sessionProtocol, experiment);
+  const result = interpretUniversal(
+    expected,
+    { numeric: body.student_result, answer: body.student_answer ?? null },
+    { ...body, experiment_id: experimentId, theoretical_value: expected.value ?? 0, unit: body.unit || expected.unit || "" },
+  );
 
   // hydrate before the mutator, else it no-ops. And AWAIT the write itself —
   // Vercel can freeze this function right after the response is sent, which
@@ -557,9 +572,14 @@ app.post("/results/interpret", async (c) => {
   // stay stuck at "active" forever.
   if (body.session_id) {
     await hydrateSession(body.session_id);
+    // Non-numeric experiments have no deviation to record — passing null keeps
+    // them out of the numeric averages (class average, accuracy stats) rather
+    // than poisoning those with a fabricated 0%.
     await recordResult(body.session_id, result.deviation_percent, body.student_result);
   }
-  recordTrace("result_interpreter", `${body.student_result} ${body.unit} vs ${theoreticalValue}`, `${result.deviation_percent}% · ${result.severity}`, Date.now() - t0);
+  const submittedLabel = expected.kind === "numeric" ? `${body.student_result} ${body.unit || expected.unit || ""}`.trim() : String(body.student_answer ?? "—");
+  const gradeLabel = result.deviation_percent !== null ? `${result.deviation_percent}%` : result.correct === null ? "needs review" : result.correct ? "correct" : "incorrect";
+  recordTrace("result_interpreter", `${submittedLabel} vs ${expected.value ?? expected.correct ?? expected.label}`, `${gradeLabel} · ${result.severity}`, Date.now() - t0);
   return c.json(result);
 });
 

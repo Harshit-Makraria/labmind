@@ -419,7 +419,13 @@ export function clearSafetyAlert(id: string) {
   });
 }
 
-export function recordResult(id: string, deviationPercent: number, studentResult?: number) {
+/**
+ * `deviationPercent` is null for non-numeric experiments (a microscopy
+ * identification, a circuit yes/no) — those have no "percent off" to record.
+ * Storing null rather than 0 keeps them out of the numeric averages instead of
+ * making every such session look like a perfect result.
+ */
+export function recordResult(id: string, deviationPercent: number | null, studentResult?: number) {
   return mutateAwait(id, (s) => {
     s.deviationPercent = deviationPercent;
     if (studentResult !== undefined) s.studentResult = studentResult;
