@@ -159,3 +159,49 @@ describe("gradeResult — none", () => {
     expect(out.deviationPercent).toBeNull();
   });
 });
+
+describe("custom experiments must not inherit chemistry coaching", () => {
+  it("gives subject-neutral advice for a custom numeric experiment", async () => {
+    const { interpretUniversal } = await import("@/server/tools/result-interpreter");
+    const expected: ExpectedResult = { kind: "numeric", label: "Resistance of the wire", value: 4.7, unit: "Ω", tolerance: 0.2 };
+    const out = interpretUniversal(
+      expected,
+      { numeric: 4.69 },
+      { session_id: "s", student_result: 4.69, unit: "Ω", theoretical_value: 4.7 },
+      { custom: true },
+    );
+    // A physics experiment was previously told "your titration technique was
+    // sound" and to "read the meniscus at eye level".
+    expect(out.diagnosis).not.toMatch(/titration|meniscus|burette|titre/i);
+    expect(out.improvement).not.toMatch(/titration|meniscus|burette|titre/i);
+    expect(out.learning_point).not.toMatch(/titration|meniscus|burette|titre/i);
+    expect(out.deviation_percent).toBe(0.2);
+    expect(out.severity).toBe("green");
+  });
+
+  it("still gives the library titration its own experiment-aware coaching", async () => {
+    const { interpretUniversal } = await import("@/server/tools/result-interpreter");
+    const expected: ExpectedResult = { kind: "numeric", label: "HCl concentration", value: 0.1, unit: "mol/L" };
+    const out = interpretUniversal(
+      expected,
+      { numeric: 0.0999 },
+      { session_id: "s", student_result: 0.0999, unit: "mol/L", theoretical_value: 0.1, experiment_id: "acid-base-titration" },
+    );
+    expect(out.diagnosis).toMatch(/titration/i);
+  });
+
+  it("uses the declared tolerance to decide severity, not a fixed percentage", async () => {
+    const { interpretUniversal } = await import("@/server/tools/result-interpreter");
+    const tight: ExpectedResult = { kind: "numeric", label: "Focal length", value: 20, unit: "cm", tolerance: 0.1 };
+    const out = interpretUniversal(
+      tight,
+      { numeric: 20.5 },
+      { session_id: "s", student_result: 20.5, unit: "cm", theoretical_value: 20 },
+      { custom: true },
+    );
+    // 2.5% would be "green" on the default percentage bands, but it is outside
+    // the experiment's own stated tolerance.
+    expect(out.correct).toBe(false);
+    expect(out.severity).not.toBe("green");
+  });
+});

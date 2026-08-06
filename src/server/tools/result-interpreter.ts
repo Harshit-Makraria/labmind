@@ -30,10 +30,21 @@ interface Copy {
  * correct/incorrect (or needs-review) verdict and coaching that talks about the
  * answer rather than about measurement technique.
  */
-export function interpretUniversal(expected: ExpectedResult, submitted: { numeric?: number | null; answer?: string | boolean | null }, req: InterpretRequest): InterpretResult {
-  // Numeric still flows through the original, experiment-aware coaching engine
-  // below — that copy is genuinely good and stays exactly as it was.
+export function interpretUniversal(
+  expected: ExpectedResult,
+  submitted: { numeric?: number | null; answer?: string | boolean | null },
+  req: InterpretRequest,
+  opts?: { custom?: boolean },
+): InterpretResult {
   if (expected.kind === "numeric") {
+    // A custom experiment gets SUBJECT-NEUTRAL coaching. The domain-specific
+    // copy below is written for the four library experiments, so routing a
+    // physics or CS experiment through it produced advice like "your titration
+    // technique was sound" and "read the meniscus at eye level" for a
+    // resistance measurement — confidently wrong, and obviously so to a
+    // teacher of that subject.
+    if (opts?.custom) return genericNumericResult(expected, submitted.numeric ?? null);
+    // Library experiments keep the original, experiment-aware engine unchanged.
     return interpret({ ...req, theoretical_value: expected.value ?? 0 });
   }
 
@@ -75,6 +86,56 @@ export function interpretUniversal(expected: ExpectedResult, submitted: { numeri
       ? "A correct identification is only complete when you can say which observed features led you to it."
       : "An incorrect identification usually traces back to one missed observable feature — find it rather than guessing again.",
   };
+}
+
+/**
+ * Numeric coaching for an experiment we have no built-in domain knowledge of.
+ *
+ * Deliberately talks about measurement in general — precision, systematic vs.
+ * random error, repeat readings — rather than inventing subject-specific advice
+ * we cannot possibly ground. Saying something true and general beats saying
+ * something specific and wrong.
+ */
+function genericNumericResult(expected: ExpectedResult, measured: number | null): InterpretResult {
+  const theo = expected.value ?? 0;
+  const unit = expected.unit ? ` ${expected.unit}` : "";
+  const label = expected.label || "result";
+
+  if (measured === null || !Number.isFinite(measured)) {
+    return {
+      deviation_percent: null, correct: null, result_kind: "numeric", severity: "amber",
+      diagnosis: "No numeric result was submitted, so there's nothing to compare yet.",
+      improvement: `Enter your measured ${label} to get feedback.`,
+      learning_point: "A result is only evidence once it's recorded with its units.",
+    };
+  }
+
+  const deviation = theo !== 0 ? round1((Math.abs(measured - theo) / Math.abs(theo)) * 100) : 0;
+  const severity = expected.tolerance != null ? (Math.abs(measured - theo) <= expected.tolerance ? "green" : deviation <= 10 ? "amber" : "red") : grade(deviation);
+  const under = measured < theo;
+  const vs = `${measured}${unit} vs. an expected ${theo}${unit}`;
+  const dir = under ? "below" : "above";
+
+  const copy: Copy =
+    severity === "green"
+      ? {
+          diagnosis: `Excellent — ${vs} (${deviation}% off), within experimental error.`,
+          improvement: "Repeat the measurement once more to confirm it's reproducible, not a lucky reading.",
+          learning_point: "A result this close usually means your method and your instrument reading were both sound.",
+        }
+      : severity === "amber"
+        ? {
+            diagnosis: `Your ${label} is ${vs} — ${deviation}% ${dir} expected. That's close, but outside comfortable experimental error.`,
+            improvement: "Re-read your instrument carefully, check you recorded every digit, and repeat the measurement to see whether the difference persists.",
+            learning_point: `A difference that repeats in the same direction points to a systematic error; one that moves around each time is random error.`,
+          }
+        : {
+            diagnosis: `Your ${label} is ${vs} — ${deviation}% ${dir} expected. That's too large to be measurement noise alone.`,
+            improvement: "Check your setup and your calculation before repeating: a wrong unit, a misread scale, or a missed factor will shift every reading the same way.",
+            learning_point: "Large one-directional errors are systematic — find the single step that biased the whole measurement rather than repeating it unchanged.",
+          };
+
+  return { deviation_percent: deviation, correct: expected.tolerance != null ? Math.abs(measured - theo) <= expected.tolerance : null, result_kind: "numeric", severity, ...copy };
 }
 
 export function interpret(req: InterpretRequest): InterpretResult {

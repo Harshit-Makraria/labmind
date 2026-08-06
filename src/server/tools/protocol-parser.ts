@@ -6,7 +6,7 @@
  * to the chosen library experiment so the flow always completes.
  */
 import "server-only";
-import type { ExpectedResult, Protocol } from "@/lib/types";
+import type { ExpectedResult, Protocol, VisionExpected } from "@/lib/types";
 import { effectiveDemo } from "@/server/config";
 import { getProtocol } from "@/server/experiments";
 import { completeJSON } from "@/server/llm/provider";
@@ -21,11 +21,20 @@ empty list for non-chemistry labs), duration_seconds (int|null), safety_flags (l
 science_explanation (1-2 sentences), expected_observation (string),
 vision_check_required (bool), vision_expected ({type, expected_value, tolerance}|null).
 
-vision_expected.type must be one of: "burette_reading", "colour_change", "gel_band", "absorbance".
-If the step's observable evidence is none of those, set vision_expected to null but you
-may still set vision_check_required true — the photo will be judged against
-expected_observation instead. Set vision_check_required true only for steps with an
-observable, photographable state.
+vision_expected.type must be one of: "burette_reading", "colour_change", "gel_band",
+"absorbance", "descriptive".
+
+Use "descriptive" for ANYTHING that is not one of the four specific chemistry
+instruments above — a physics ammeter or vernier caliper, a microscope field, a
+breadboard circuit, a weighing balance, a terminal screenshot, an assembled
+apparatus. This is the normal choice for most subjects. For "descriptive" also set:
+  "description": "<plain-language statement of what the photo must show>",
+  "must_show": ["<feature that must be visible>", ...],
+  "must_not_show": ["<common mistake that would be visible>", ...]
+and set expected_value only when a specific number should be readable in the photo
+(then tolerance too); otherwise leave expected_value null.
+
+Set vision_check_required true only for steps with an observable, photographable state.
 
 ALSO extract the experiment's final expected result as "expected_result":
 {
@@ -77,6 +86,49 @@ export async function extractPdfText(pdfBase64: string): Promise<string | null> 
     console.error("[PDF] extraction failed:", e);
     return null;
   }
+}
+
+const LEGACY_TYPES = new Set(["burette_reading", "colour_change", "gel_band", "absorbance"]);
+
+/**
+ * Make any model-emitted vision_expected safe to run.
+ *
+ * The failure mode this prevents: the model marks a step as needing a photo but
+ * emits a vision_expected the pipeline can't act on (an invented type, or
+ * "descriptive" with no description). Rather than dropping the check — which
+ * would silently stop verifying that step — fall back to a descriptive check
+ * built from the step's own expected_observation, which the parser always
+ * produces. That keeps every photographable step genuinely verified, in any
+ * subject.
+ */
+function normaliseVisionExpected(raw: unknown, expectedObservation?: string): VisionExpected | null {
+  const fallbackDescription = (expectedObservation ?? "").trim();
+  if (!raw || typeof raw !== "object") {
+    return fallbackDescription
+      ? { type: "descriptive", expected_value: null, tolerance: 0, description: fallbackDescription }
+      : null;
+  }
+  const v = raw as Record<string, unknown>;
+  const type = typeof v.type === "string" ? v.type : "";
+  const description = typeof v.description === "string" ? v.description.trim() : "";
+  const expectedValue = typeof v.expected_value === "number" && Number.isFinite(v.expected_value) ? v.expected_value : null;
+  const tolerance = typeof v.tolerance === "number" && v.tolerance >= 0 ? v.tolerance : 0;
+  const strList = (x: unknown) => (Array.isArray(x) ? x.filter((s): s is string => typeof s === "string" && s.trim() !== "") : undefined);
+
+  if (LEGACY_TYPES.has(type)) {
+    return { type: type as VisionExpected["type"], expected_value: expectedValue, tolerance, ...(description ? { description } : {}) };
+  }
+
+  const desc = description || fallbackDescription;
+  if (!desc) return null;
+  return {
+    type: "descriptive",
+    expected_value: expectedValue,
+    tolerance,
+    description: desc,
+    must_show: strList(v.must_show),
+    must_not_show: strList(v.must_not_show),
+  };
 }
 
 /**
@@ -136,7 +188,7 @@ export async function parseProtocol(pdfBase64?: string, experimentId?: string): 
       science_explanation: s.science_explanation ?? "",
       expected_observation: s.expected_observation ?? "",
       vision_check_required: !!s.vision_check_required,
-      vision_expected: s.vision_expected ?? null,
+      vision_expected: normaliseVisionExpected(s.vision_expected, s.expected_observation),
     }));
 
     // Keep the parsed expected result only if it's internally consistent — a

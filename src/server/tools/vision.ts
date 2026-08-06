@@ -39,6 +39,36 @@ function colourTargets(experimentId?: string): string[] {
   return map[experimentId ?? ""] ?? ["pink", "blue", "purple", "yellow", "orange", "green", "red"];
 }
 
+/**
+ * Turn a descriptive check's outcome into a sentence a student can act on.
+ * "Failed" is useless feedback; "the ammeter needle isn't visible in frame"
+ * tells them what to do differently.
+ */
+function describeOutcome(
+  parsed: { criteria_missing?: string[]; criteria_violated?: string[]; subject_visible?: boolean },
+  pass: boolean,
+  reading: number | null,
+  expectedValue: number | null | undefined,
+  tol: number,
+  deviation: number | null,
+): string {
+  const parts: string[] = [];
+  if (parsed.subject_visible === false) parts.push("The subject of this step isn't visible in the photo.");
+  const missing = parsed.criteria_missing ?? [];
+  const violated = parsed.criteria_violated ?? [];
+  if (missing.length) parts.push(`Not confirmed: ${missing.join("; ")}.`);
+  if (violated.length) parts.push(`Problem seen: ${violated.join("; ")}.`);
+  if (expectedValue !== null && expectedValue !== undefined) {
+    parts.push(
+      reading !== null
+        ? `Read ${reading} vs. expected ${expectedValue} (±${tol})${deviation !== null ? ` — Δ ${deviation}` : ""}.`
+        : "No numeric value could be read from the image.",
+    );
+  }
+  if (!parts.length) parts.push(pass ? "The photo shows everything this step requires." : "The evidence doesn't support this step.");
+  return parts.join(" ");
+}
+
 // ─── Demo / fallback heuristics ─────────────────────────────────────
 
 function toBuffer(imageBase64: string): Buffer {
@@ -147,6 +177,44 @@ async function demoCheckVision(req: VisionCheckRequest): Promise<VisionResult> {
   const confidence = round2(0.84 + (h % 6) / 100);
   const qualityCheck: VisionCheckStep = { label: "Image quality", passed: true, detail: `Sharp and well-exposed (${quality.width}×${quality.height}).` };
   const shapeCheck: VisionCheckStep = { label: "Instrument shape match", passed: true, detail: "Matches the expected profile for this instrument." };
+
+  // Generic, description-driven check — the path that makes any subject work.
+  // Kept genuinely fallible in demo mode (a deterministic slice of images
+  // fails) so the retake/override UX is demoable without a provider key, the
+  // same way the numeric path already is.
+  const isDescriptive = expected.type === "descriptive" || !!expected.description?.trim();
+  if (isDescriptive) {
+    const requirement = expected.description?.trim() || "the evidence this step requires";
+    const criteria = expected.must_show?.filter(Boolean) ?? [];
+    const demoMiss = h % 20 >= 17;
+    const missing = demoMiss && criteria.length ? [criteria[h % criteria.length]] : [];
+    const pass = !demoMiss;
+    const checks: VisionCheckStep[] = [
+      qualityCheck,
+      { label: "What the AI saw", passed: true, detail: `A photograph consistent with: ${requirement} (demo).` },
+      {
+        label: "Shows what the step requires",
+        passed: pass,
+        detail: pass
+          ? `All required features observed${criteria.length ? `: ${criteria.join("; ")}` : ""} (demo).`
+          : `Not confirmed: ${missing.join("; ") || requirement}. (demo)`,
+      },
+    ];
+    return {
+      reading: null,
+      confidence: pass ? confidence : round2(0.4 + (h % 5) / 100),
+      pass,
+      deviation: null,
+      message: pass ? "Photo shows what this step requires. ✓" : `Could not confirm: ${missing.join("; ") || requirement}. Retake the photo.`,
+      notes: `Demo mode — judged against the step's description: "${requirement}".`,
+      attempts: 1,
+      manual_override_available: false,
+      verification_threshold: VISION_HIGH_CONFIDENCE,
+      verification_status: verificationStatus(pass, pass ? confidence : 0.4),
+      checks,
+      located_region: demoLocatedRegion(expected.type, h),
+    };
+  }
 
   if (expected.type === "colour_change") {
     // No graduation scale to compare against here (a colour endpoint is
@@ -278,7 +346,15 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       confidence?: number;
       message?: string;
       notes?: string;
+      observed_description?: string;
+      criteria_present?: string[];
+      criteria_missing?: string[];
+      criteria_violated?: string[];
+      subject_visible?: boolean;
     };
+    // A generic, description-driven check — the universal path that lets any
+    // subject's evidence be judged without a hardcoded instrument reader.
+    const isDescriptive = req.expected.type === "descriptive" || !!req.expected.description?.trim();
 
     // Confidence now comes from measured agreement across samples, NOT from the
     // model's own claim — self-reported confidence is poorly calibrated and was
@@ -331,10 +407,24 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       legibilityOk = false;
       conf = round2(Math.min(conf, 0.3));
     }
-    // (c) A null reading is never a pass, whatever confidence was claimed.
-    if (reading === null && req.expected.type !== "colour_change") {
+    // (c) A null reading is never a pass, whatever confidence was claimed —
+    //     except where no number was ever expected (a colour endpoint, or a
+    //     descriptive check with no numeric target, such as "the circuit is
+    //     wired correctly" or "the slide shows cardiac muscle").
+    const numberExpected =
+      req.expected.type !== "colour_change" &&
+      (!isDescriptive || (req.expected.expected_value !== null && req.expected.expected_value !== undefined));
+    if (reading === null && numberExpected) {
       penalties.push("no reading could be extracted");
       conf = round2(Math.min(conf, 0.35));
+    }
+    // The model saying the subject isn't in frame is decisive — a photo of the
+    // wrong thing cannot verify a step at any confidence.
+    if (isDescriptive && parsed.subject_visible === false) {
+      penalties.push("the step's subject is not visible in the photo");
+      legibilityDetail = "The subject of this step is not visible in the photo.";
+      legibilityOk = false;
+      conf = round2(Math.min(conf, 0.2));
     }
 
     // (d) Physics. No AI involved: does this value exist on the instrument's
@@ -358,7 +448,26 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
     // cannot actually display.
     if (physical.snappedReading !== null) reading = physical.snappedReading;
 
-    if (req.expected.type === "colour_change") {
+    if (isDescriptive) {
+      // The SERVER decides, from what the model reported observing. Any
+      // required feature the model could not confirm fails the step, and any
+      // watch-for problem it did see fails it too. This is the same
+      // "model observes, server judges" split the numeric path uses.
+      const missing = parsed.criteria_missing ?? [];
+      const violated = parsed.criteria_violated ?? [];
+      const subjectOk = parsed.subject_visible !== false;
+      // When a numeric target is also declared (e.g. "the ammeter should read
+      // 0.4–0.6 A"), the reading must ALSO be in tolerance.
+      let numericOk = true;
+      if (ev !== null && ev !== undefined) {
+        numericOk = reading !== null && Math.abs(reading - ev) <= tol;
+        if (reading !== null) deviation = round2(reading - ev);
+      }
+      pass = subjectOk && missing.length === 0 && violated.length === 0 && numericOk && !hasHardViolation(physical.violations);
+      console.log(
+        `[VISION]   descriptive: subject=${subjectOk} missing=[${missing.join("|")}] violated=[${violated.join("|")}] numericOk=${numericOk} → pass=${pass}`,
+      );
+    } else if (req.expected.type === "colour_change") {
       // Judge the observed colour against the expected endpoint HERE, on the
       // server — the model never saw the target, so this stays independent.
       const observed = (parsed.observed_colour ?? "").toLowerCase();
@@ -398,8 +507,9 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       ? "Reading is in-range, on-scale, and consistent with your prior readings."
       : physical.violations.map((v) => v.message).join(" ");
 
-    const finalDetail =
-      req.expected.type === "colour_change"
+    const finalDetail = isDescriptive
+      ? describeOutcome(parsed, pass, reading, ev, tol, deviation)
+      : req.expected.type === "colour_change"
         ? (pass ? "Observed colour matches the expected endpoint." : "Observed colour does not match the expected endpoint.")
         : reading !== null && ev !== null && ev !== undefined
           ? `${reading} vs. expected ${ev} (±${tol}) — Δ ${deviation}.`
@@ -411,8 +521,17 @@ export async function checkVision(req: VisionCheckRequest): Promise<VisionResult
       { label: "Self-consistency", passed: selfConsistencyOk, detail: selfConsistencyDetail },
       { label: "Scale & subject legible", passed: legibilityOk, detail: legibilityDetail },
       { label: "Physical constraints", passed: physicsOk, detail: physicsDetail },
-      { label: "Matches expected value", passed: pass, detail: finalDetail },
+      {
+        label: isDescriptive ? "Shows what the step requires" : "Matches expected value",
+        passed: pass,
+        detail: finalDetail,
+      },
     ];
+    // Surface what the model actually saw, so a student who fails knows why
+    // rather than being told only that they failed.
+    if (isDescriptive && parsed.observed_description) {
+      checks.splice(1, 0, { label: "What the AI saw", passed: true, detail: parsed.observed_description });
+    }
 
     const result: VisionResult = {
       reading,

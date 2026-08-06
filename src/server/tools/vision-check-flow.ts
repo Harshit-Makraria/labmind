@@ -35,6 +35,16 @@ export interface ImageCheckObservation {
   confidence?: number;
   message?: string;
   notes?: string;
+  /** "descriptive" checks — what the model actually saw, before any judgement. */
+  observed_description?: string;
+  /** Which of the instructor's must_show criteria the model found present. */
+  criteria_present?: string[];
+  /** Which must_show criteria are missing — the reason a step fails. */
+  criteria_missing?: string[];
+  /** Which must_not_show criteria were (wrongly) observed. */
+  criteria_violated?: string[];
+  /** Whether the subject of the step is visible at all. */
+  subject_visible?: boolean;
 }
 
 // ── NODE 1 — build the instruction ("what to check in this image") ───────
@@ -78,7 +88,9 @@ function experimentLabel(experimentId?: string): string {
   return (experimentId && EXPERIMENT_LABELS[experimentId]) ?? (experimentId ?? "General Lab Experiment");
 }
 
-const CHECK_INSTRUCTIONS: Record<VisionCheckType, (baseCtx: string) => string> = {
+/** The hand-tuned instrument readers. "descriptive" is deliberately absent — it
+ *  is built from the instructor's own description in buildDescriptiveInstruction. */
+const CHECK_INSTRUCTIONS: Partial<Record<VisionCheckType, (baseCtx: string) => string>> = {
   burette_reading: (baseCtx) => `${baseCtx}
 This photograph shows a burette. Report the liquid level.
 
@@ -160,24 +172,76 @@ Return JSON:
 }`,
 };
 
+/**
+ * The universal check. Instead of a hardcoded instrument prompt, the
+ * instructor's own description of the required evidence drives the check.
+ *
+ * The blind-reading discipline is preserved in the way that matters: the model
+ * is asked to DESCRIBE what it sees before it judges anything, and it is never
+ * told the expected numeric value even when one exists. It reports which
+ * criteria it observed; the SERVER decides pass/fail from that. Handing the
+ * model the target number is what previously caused a 6 mL burette to be
+ * "read" as 24.5 mL, and that mistake is not repeated here.
+ */
+function buildDescriptiveInstruction(baseCtx: string, expected: VisionCheckRequest["expected"]): string {
+  const description = expected.description?.trim() || "the apparatus and result described by this step";
+  const mustShow = expected.must_show?.filter(Boolean) ?? [];
+  const mustNotShow = expected.must_not_show?.filter(Boolean) ?? [];
+  const wantsNumber = expected.expected_value !== null && expected.expected_value !== undefined;
+
+  return `${baseCtx}
+A student has submitted this photograph as evidence for a laboratory step.
+
+WHAT THIS STEP REQUIRES THE PHOTO TO SHOW:
+"${description}"
+
+${mustShow.length ? `Required features — check each one independently:\n${mustShow.map((c, i) => `  ${i + 1}. ${c}`).join("\n")}\n` : ""}${mustNotShow.length ? `Problems to watch for — report any you actually see:\n${mustNotShow.map((c, i) => `  ${i + 1}. ${c}`).join("\n")}\n` : ""}
+Method:
+1. FIRST describe exactly what is visible in the photograph, in plain words.
+   Do this before judging anything.
+2. Then decide which required features are genuinely present, and which are
+   missing. Judge only from the pixels — do not assume a feature is present
+   because the step says it should be.
+3. ${wantsNumber ? "If a numeric value is displayed on an instrument, scale or screen, report it exactly as shown." : "If any numeric value happens to be visible, report it; otherwise return null."}
+4. Judge image quality independently of the content.
+
+If the photo does not show the subject at all (wrong subject, covered lens,
+unrelated image), set subject_visible false and confidence low. Reporting that
+honestly is a correct and valuable answer — never approve a photo to be helpful.
+
+Return JSON:
+{
+  "observed_description": "<what you actually see, plainly, 1–2 sentences>",
+  "criteria_present": [<the required features you genuinely observed, as strings>],
+  "criteria_missing": [<required features you cannot confirm from this image>],
+  "criteria_violated": [<problems from the watch-for list you actually see>],
+  "subject_visible": <true|false — is the step's subject actually in frame>,
+  "reading": <number if a value is legibly displayed, else null>,
+  "scale_legible": <true|false — is the image clear enough to judge>,
+  "confidence": <0.0–1.0 — 0.9+ only when the image is unambiguous>,
+  "message": "<one sentence stating whether the evidence supports this step>",
+  "notes": "<specific quality problems: blur, glare, framing, occlusion>"
+}`;
+}
+
 /** NODE 1 — build the per-instrument "what to check" message for this step. */
 export function buildCheckInstruction(req: Pick<VisionCheckRequest, "expected" | "step_number" | "experiment_id">): string {
   const { expected, step_number, experiment_id } = req;
   const baseCtx = `Experiment: ${experimentLabel(experiment_id)}. Step: ${step_number}.`;
+
+  // A description always wins, even if the step also declares a legacy type —
+  // an instructor who wrote what the photo must show has said something more
+  // specific than any generic instrument template can express.
+  if (expected.type === "descriptive" || expected.description?.trim()) {
+    return buildDescriptiveInstruction(baseCtx, expected);
+  }
+
   const build = CHECK_INSTRUCTIONS[expected.type];
   if (build) return build(baseCtx);
 
-  return `${baseCtx}
-Report what is physically visible in this laboratory photograph.
-
-Return JSON:
-{
-  "reading": <number if an instrument value is visible, else null>,
-  "scale_legible": <true|false>,
-  "confidence": <0.0–1.0>,
-  "message": "<what you observe in one sentence>",
-  "notes": "<image quality problems if any>"
-}`;
+  // Unknown type with no description — fall back to the generic path rather
+  // than a bare "describe this", so the step is still meaningfully judged.
+  return buildDescriptiveInstruction(baseCtx, expected);
 }
 
 /** NODE 2 — send the image + instruction to one specific vision model. */

@@ -5,7 +5,22 @@
 
 // ─── Protocol & experiments ─────────────────────────────────────────
 
-export type VisionCheckType = "burette_reading" | "colour_change" | "gel_band" | "absorbance";
+/**
+ * How a step's photo evidence is judged.
+ *
+ * The first four are hand-tuned readers for specific instruments — they get
+ * bespoke prompts and deterministic physics validation (a burette has no
+ * graduation at 24.37 mL, so no honest reading can produce one).
+ *
+ * "descriptive" is the universal one. The instructor writes, in plain language,
+ * what the photo must show, and the model is judged against that description
+ * instead of against a hardcoded instrument. This is what lets a physics
+ * ammeter, a vernier caliper, a microscope field, a breadboard circuit or a
+ * terminal screenshot be verified without anyone writing a new prompt for each
+ * one — previously anything outside the four types below simply could not be
+ * checked at all.
+ */
+export type VisionCheckType = "burette_reading" | "colour_change" | "gel_band" | "absorbance" | "descriptive";
 
 export interface Reagent {
   name: string;
@@ -17,6 +32,16 @@ export interface VisionExpected {
   type: VisionCheckType;
   expected_value: number | null;
   tolerance: number;
+  /**
+   * "descriptive" checks only — the instructor's plain-language statement of
+   * what must be visible in the photo. This replaces a hardcoded instrument
+   * prompt, so any subject works without new code.
+   */
+  description?: string;
+  /** Criteria that must ALL be present for the step to pass. */
+  must_show?: string[];
+  /** Criteria whose presence FAILS the step (a common mistake made visible). */
+  must_not_show?: string[];
 }
 
 export interface ProtocolStep {

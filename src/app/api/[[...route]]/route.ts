@@ -563,6 +563,10 @@ app.post("/results/interpret", async (c) => {
     expected,
     { numeric: body.student_result, answer: body.student_answer ?? null },
     { ...body, experiment_id: experimentId, theoretical_value: expected.value ?? 0, unit: body.unit || expected.unit || "" },
+    // A protocol that declares its own expected result is a custom experiment
+    // of unknown subject — it must not inherit the library experiments'
+    // chemistry-specific coaching.
+    { custom: !!sessionProtocol?.expected_result },
   );
 
   // hydrate before the mutator, else it no-ops. And AWAIT the write itself —

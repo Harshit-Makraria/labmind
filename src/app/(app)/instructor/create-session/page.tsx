@@ -1,11 +1,19 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, CheckCircle2, Copy, FlaskConical, Loader2, Share2, Upload, X } from "lucide-react";
+import { Check, CheckCircle2, Copy, FlaskConical, Loader2, PencilRuler, Share2, Upload, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
+import { ExperimentBuilder, emptyProtocol, validateProtocol } from "@/components/instructor/ExperimentBuilder";
 import type { ExperimentMeta, InstructorSession, Protocol } from "@/lib/types";
+
+/**
+ * Three ways to define what students will actually do. "manual" is what makes
+ * the product subject-agnostic — without it an instructor can only use the
+ * built-in chemistry/biology experiments or hope a PDF parses.
+ */
+type Mode = "template" | "pdf" | "manual";
 
 export default function CreateSessionPage() {
   const [created, setCreated] = useState<InstructorSession | null>(null);
@@ -17,21 +25,32 @@ export default function CreateSessionPage() {
   // experiment_name, and sent along at "Generate session" so every student
   // who joins actually gets these steps instead of a generic library one.
   const [customProtocol, setCustomProtocol] = useState<Protocol | null>(null);
+  const [mode, setMode] = useState<Mode>("template");
+  const [builderProtocol, setBuilderProtocol] = useState<Protocol>(emptyProtocol());
   const [form, setForm] = useState({ session_name: "", experiment_name: "", experiment_id: "", batch: "", department: "", institution: "", course_code: "", date: new Date().toISOString().split("T")[0], require_verification: false });
+
+  // Whichever authoring mode is active decides the protocol students receive.
+  const activeProtocol: Protocol | null = mode === "manual" ? builderProtocol : mode === "pdf" ? customProtocol : null;
 
   const { data: experiments } = useQuery<ExperimentMeta[]>({ queryKey: ["experiments"], queryFn: async () => (await fetch("/api/experiments")).json() });
 
   const create = useMutation({
     mutationFn: async () => {
+      // A hand-built experiment must be complete before students can join it —
+      // a half-authored protocol would strand them mid-experiment.
+      if (mode === "manual") {
+        const problem = validateProtocol(builderProtocol);
+        if (problem) throw new Error(problem);
+      }
       const exp = (experiments ?? []).find((e) => e.id === form.experiment_id);
       const res = await fetch("/api/instructor/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          experiment_name: customProtocol ? customProtocol.experiment_name : form.experiment_name.trim() || exp?.name || "",
+          experiment_name: activeProtocol ? activeProtocol.experiment_name : form.experiment_name.trim() || exp?.name || "",
           experiment_id: form.experiment_id || undefined,
-          custom_protocol: customProtocol,
+          custom_protocol: activeProtocol,
         }),
       });
       if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
@@ -96,7 +115,15 @@ export default function CreateSessionPage() {
     );
   }
 
-  const valid = form.session_name && (form.experiment_name || form.experiment_id);
+  // Each mode has its own definition of "ready to create".
+  const valid = Boolean(
+    form.session_name &&
+      (mode === "manual"
+        ? builderProtocol.experiment_name.trim() && builderProtocol.steps.some((s) => s.title.trim())
+        : mode === "pdf"
+          ? customProtocol
+          : form.experiment_name || form.experiment_id),
+  );
 
   return (
     <div className="mx-auto max-w-lg">
@@ -110,23 +137,66 @@ export default function CreateSessionPage() {
           <input value={form.session_name} onChange={(e) => setForm({ ...form, session_name: e.target.value })} placeholder="Chem Lab 3A — Titration" className="input-base" />
         </Field>
 
-        <Field label="Experiment name">
-          <input
-            value={form.experiment_name}
-            onChange={(e) => setForm({ ...form, experiment_name: e.target.value })}
-            placeholder="Custom experiment name"
-            className="input-base"
-          />
-          <p className="mt-1 text-xs text-[var(--color-muted)]">Leave blank to use the selected template&apos;s name.</p>
-        </Field>
+        {/* ── How is this experiment defined? ─────────────────────── */}
+        <div>
+          <span className="mb-1.5 block text-sm font-semibold text-[var(--color-navy)]">Where do the steps come from?</span>
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { id: "template", label: "Library", icon: FlaskConical },
+              { id: "pdf", label: "Upload PDF", icon: Upload },
+              { id: "manual", label: "Build it", icon: PencilRuler },
+            ] as const).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setMode(m.id)}
+                className="flex flex-col items-center gap-1 rounded-xl border-2 px-2 py-3 text-xs font-semibold transition-colors"
+                style={{
+                  borderColor: mode === m.id ? "var(--color-brand)" : "rgba(15,41,66,.12)",
+                  color: mode === m.id ? "var(--color-brand)" : "var(--color-navy)",
+                }}
+              >
+                <m.icon size={17} />
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-[var(--color-muted)]">
+            {mode === "template"
+              ? "Use one of the ready-made experiments from the library."
+              : mode === "pdf"
+                ? "Upload your own lab manual — the AI structures it into steps."
+                : "Write the experiment yourself — any subject, any equipment."}
+          </p>
+        </div>
 
-        <Field label="Template experiment (optional)">
-          <select value={form.experiment_id} onChange={(e) => setForm({ ...form, experiment_id: e.target.value })} className="input-base">
-            <option value="">— Use default template —</option>
-            {(experiments ?? []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-          <p className="mt-1 text-xs text-[var(--color-muted)]">Pick a library protocol for the session steps, or leave it blank to use the default.</p>
-        </Field>
+        {mode === "template" && (
+          <>
+            <Field label="Experiment name">
+              <input
+                value={form.experiment_name}
+                onChange={(e) => setForm({ ...form, experiment_name: e.target.value })}
+                placeholder="Custom experiment name"
+                className="input-base"
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted)]">Leave blank to use the selected template&apos;s name.</p>
+            </Field>
+
+            <Field label="Template experiment (optional)">
+              <select value={form.experiment_id} onChange={(e) => setForm({ ...form, experiment_id: e.target.value })} className="input-base">
+                <option value="">— Use default template —</option>
+                {(experiments ?? []).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-[var(--color-muted)]">Pick a library protocol for the session steps, or leave it blank to use the default.</p>
+            </Field>
+          </>
+        )}
+
+        {mode === "manual" && (
+          <div className="rounded-xl bg-[var(--color-surface)] p-3">
+            <ExperimentBuilder value={builderProtocol} onChange={setBuilderProtocol} />
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Institution">
@@ -156,7 +226,7 @@ export default function CreateSessionPage() {
           <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="input-base" />
         </Field>
 
-        <div className="rounded-xl border-2 border-dashed border-black/15 p-5 text-center text-sm text-[var(--color-muted)]">
+        <div className="rounded-xl border-2 border-dashed border-black/15 p-5 text-center text-sm text-[var(--color-muted)]" hidden={mode !== "pdf"}>
           <input
             ref={inputRef}
             type="file"
@@ -229,7 +299,7 @@ export default function CreateSessionPage() {
                 {pdfUploading ? "Parsing PDF…" : "Upload experiment PDF"}
               </button>
               {pdfName && <p className="mt-1 text-xs text-[var(--color-muted)]">{pdfName}</p>}
-              <p className="mt-0.5 text-xs">(optional — AI reads it and builds the full step-by-step experiment)</p>
+              <p className="mt-0.5 text-xs">Any subject — the AI reads it and builds the full step-by-step experiment.</p>
             </>
           )}
         </div>

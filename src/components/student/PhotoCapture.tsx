@@ -13,7 +13,18 @@ import { ApiError, api } from "@/lib/api-client";
 import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import type { VisionExpected, VisionResult } from "@/lib/types";
 
-const FALLBACK_EXPECTED: VisionExpected = { type: "burette_reading", expected_value: null, tolerance: 0.1 };
+/**
+ * What to check when a step requires a photo but declares no explicit spec.
+ *
+ * This used to default to "burette_reading", which silently asked the AI to
+ * read a burette for a physics circuit or a microscope slide. Falling back to a
+ * descriptive check built from the step's own expected observation keeps the
+ * verification meaningful in any subject.
+ */
+function fallbackExpected(expectedObservation?: string, title?: string): VisionExpected {
+  const description = (expectedObservation ?? "").trim() || (title ? `Evidence that "${title}" was completed correctly.` : "The result this step describes.");
+  return { type: "descriptive", expected_value: null, tolerance: 0, description };
+}
 
 /**
  * Animated confidence bar with a marker at the auto-verify threshold, so the
@@ -191,7 +202,7 @@ export function PhotoCapture({ sessionId }: { sessionId: string }) {
         session_id: sessionId,
         step_number: step?.step_number ?? 0,
         image_base64: base64 ?? "",
-        expected: step?.vision_expected ?? FALLBACK_EXPECTED,
+        expected: step?.vision_expected ?? fallbackExpected(step?.expected_observation, step?.title),
         experiment_id: session?.protocol.experiment_id,
       }),
     onSuccess: (res) => {
