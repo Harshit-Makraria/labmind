@@ -431,7 +431,22 @@ export interface InstructorSession {
 
 // ─── Verification queue ─────────────────────────────────────────────
 
-export type VerificationStatus = "pending" | "approved" | "rejected";
+/**
+ * Lifecycle of one submitted photo.
+ *
+ * Only "pending" is an instructor TASK — it is what the verification queue and
+ * its badge count are built on. The rest are outcomes kept as evidence, so a
+ * step that passed (or failed, or was too blurry to read) still has its photo
+ * on record. Before these existed, only queued photos were saved at all and
+ * every auto-verified capture was discarded after analysis.
+ */
+export type VerificationStatus =
+  | "pending"        // needs instructor review — appears in the queue
+  | "approved"       // instructor approved it
+  | "rejected"       // instructor rejected it
+  | "auto_verified"  // passed automatically, no review needed
+  | "failed"         // clear image, but didn't show what the step required
+  | "retake";        // image quality too low to judge
 
 export interface VerificationEntry {
   id: string;
@@ -605,4 +620,114 @@ export interface LabReport {
   mistakes: string[];
   instructor_remarks: string;
   performance_score: number;
+}
+
+// ─── Instructor analytics & student records ──────────────────────────
+//
+// Shared (not server-only) because the instructor console renders them
+// directly. The server module that builds them imports these same types.
+
+export interface StepAnalytics {
+  step_number: number;
+  title: string;
+  reached: number;
+  completed: number;
+  skipped: number;
+  in_progress: number;
+  photo_attempts: number;
+  photo_passed: number;
+  photo_failed: number;
+  manual_overrides: number;
+  median_seconds: number | null;
+  max_attempts: number;
+}
+
+export interface SessionAnalytics {
+  code: string;
+  session_name: string;
+  experiment_name: string;
+  generated_at: string;
+
+  students_joined: number;
+  students_active: number;
+  students_completed: number;
+  students_not_started: number;
+  completion_rate: number | null;
+
+  avg_progress_percent: number;
+  total_steps: number;
+
+  results_recorded: number;
+  avg_deviation: number | null;
+  median_deviation: number | null;
+  within_5_percent: number;
+  within_10_percent: number;
+
+  photos_submitted: number;
+  photos_auto_verified: number;
+  photos_pending_review: number;
+  photos_approved: number;
+  photos_rejected: number;
+
+  safety_alerts: number;
+  manual_overrides: number;
+  skipped_steps: number;
+  duplicate_photos: number;
+  pacing_flags: number;
+
+  prelab_taken: number;
+  prelab_passed: number;
+  avg_prelab_score: number | null;
+
+  steps: StepAnalytics[];
+  hardest_steps: { step_number: number; title: string; reason: string }[];
+}
+
+export interface StudentPhoto {
+  id: string;
+  step_number: number;
+  step_title: string;
+  status: string;
+  ai_reading: number | null;
+  ai_confidence: number;
+  ai_message: string | null;
+  instructor_comment: string | null;
+  submitted_at: string;
+  resolved_at: string | null;
+  has_image: boolean;
+}
+
+export interface StudentRecordStep extends StepRecord {
+  title: string;
+  expected_observation: string;
+  elapsed_seconds: number | null;
+  pacing_flag: string | null;
+}
+
+export interface StudentRecord {
+  session_id: string;
+  student_name: string;
+  experiment_id: string;
+  experiment_name: string;
+  status: string;
+  current_step: number;
+  total_steps: number;
+  started_at: string;
+  updated_at: string;
+
+  hypothesis: string | null;
+  prelab_score: number | null;
+  prelab_passed: boolean | null;
+
+  student_result: number | null;
+  deviation_percent: number | null;
+
+  safety_alert_count: number;
+  duplicate_photo_count: number;
+
+  steps: StudentRecordStep[];
+  safety_log: SafetyLogEntry[];
+  notes: string[];
+  photos: StudentPhoto[];
+  audit: { step_number: number; summary: string; severity: string; at: string }[];
 }

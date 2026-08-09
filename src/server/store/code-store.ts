@@ -238,8 +238,17 @@ function rowToEntry(row: {
   };
 }
 
+/**
+ * Record one submitted photo.
+ *
+ * `status` defaults to "pending" (the instructor queue) for backwards
+ * compatibility, but the vision route now passes the real outcome so that
+ * auto-verified, failed and retake captures are kept as evidence too —
+ * without any of them landing in the instructor's action queue.
+ */
 export async function submitVerification(
   entry: Omit<VerificationEntry, "id" | "status" | "instructor_comment" | "resolved_at"> & { image_hash?: string | null },
+  status: VerificationStatus = "pending",
 ): Promise<VerificationEntry> {
   const row = await db.verificationEntry.create({
     data: {
@@ -251,6 +260,9 @@ export async function submitVerification(
       aiReading: entry.ai_reading,
       aiConfidence: entry.ai_confidence,
       aiMessage: entry.ai_message,
+      status,
+      // An outcome that needs no human decision is already resolved.
+      resolvedAt: status === "pending" ? null : new Date(),
     },
   });
   return rowToEntry(row);
@@ -299,7 +311,10 @@ export async function listVerifications(status?: VerificationStatus, ownerUserId
       select: { ...BASE_FIELDS, imageBase64: true },
     }),
     db.verificationEntry.findMany({
-      where: { status: { not: "pending" }, ...ownerWhere },
+      // Only entries an instructor actually acted on. Auto-verified, failed and
+      // retake captures are evidence rather than decisions — they'd swamp this
+      // history list, and they're shown in full on the student record page.
+      where: { status: { in: ["approved", "rejected"] }, ...ownerWhere },
       orderBy: { submittedAt: "desc" },
       select: { ...BASE_FIELDS, imageBase64: false },
     }),

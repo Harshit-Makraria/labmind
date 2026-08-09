@@ -6,6 +6,8 @@ import type {
   AgentDecision,
   AgentEvent,
   ExperimentMeta,
+  SessionAnalytics,
+  StudentRecord,
   InterpretRequest,
   InterpretResult,
   ParseProtocolRequest,
@@ -113,6 +115,11 @@ export const api = {
     >("/api/session/action", { session_id, action }),
 
   sessionDetail: (id: string) => get<SessionDetail & { notes: string[] }>(`/api/session/${id}`),
+
+  /** Aggregate analytics for one class — joined, progress, per-step difficulty. */
+  sessionAnalytics: (code: string) => get<SessionAnalytics>(`/api/instructor/sessions/${code}/analytics`),
+  /** One student's complete experiment record, including saved photo metadata. */
+  studentRecord: (sessionId: string) => get<StudentRecord>(`/api/instructor/students/${sessionId}/record`),
 
   dashboardSessions: () => get<SessionSummary[]>("/api/dashboard/sessions"),
   dashboardTraces: () => get<TraceSpan[]>("/api/dashboard/traces"),

@@ -35,6 +35,7 @@ import {
   skipStep, upsertSession,
 } from "@/server/store/session-store";
 import { db } from "@/server/db";
+import { getSessionAnalytics, getStudentRecord, getVerificationImage } from "@/server/store/analytics";
 import {
   addStudentToSession, createInstructorSession, getInstructorSession,
   instructorOwnsCode, instructorOwnsVerification,
@@ -367,6 +368,27 @@ app.post("/vision/check", async (c) => {
       console.warn(`[DUPLICATE] session=${body.session_id} step=${body.step_number} ${note} (hash ${fp})`);
       recordDuplicatePhoto(body.session_id, body.step_number, note);
       recordTrace("vision_tool", `step ${body.step_number} duplicate`, note, Date.now() - t0, 0);
+      // Keep the duplicate itself. This is the single strongest cheating
+      // signal the system can produce, and it was the one submission that
+      // left no image behind — the instructor saw a counter increment with
+      // no way to look at what was actually submitted.
+      if (labRow?.instructorCode) {
+        try {
+          await submitVerification({
+            session_id: body.session_id,
+            student_name: labRow.studentName,
+            step_number: body.step_number,
+            image_base64: body.image_base64,
+            ai_reading: null,
+            ai_confidence: 0,
+            ai_message: `Duplicate photo — ${note}.`,
+            submitted_at: new Date().toISOString(),
+            image_hash: fp,
+          }, "failed");
+        } catch (e) {
+          console.error(`[DUPLICATE] failed to save the duplicate image as evidence:`, e);
+        }
+      }
       return c.json({
         reading: null, confidence: 0, pass: false, deviation: null,
         message: sameStudent
@@ -440,29 +462,48 @@ app.post("/vision/check", async (c) => {
   } else if (!isHighConf && body.session_id) {
     result.verification_status = "needs_review";
     console.log(`[ROUTE /vision/check] 🔍 NEEDS REVIEW — conf=${result.confidence} (40%–${threshold}) — auto-queuing for instructor`);
-    try {
-      if (labRow?.instructorCode) {
-        const entry = await submitVerification({
-          session_id: body.session_id,
-          student_name: labRow.studentName,
-          step_number: body.step_number,
-          image_base64: body.image_base64,
-          ai_reading: result.reading,
-          ai_confidence: result.confidence,
-          ai_message: `Confidence ${(result.confidence * 100).toFixed(0)}% (needs review): ${result.message}`,
-          submitted_at: new Date().toISOString(),
-          image_hash: fp,
-        });
-        console.log(`[ROUTE /vision/check] ✓ Queued for instructor review: entry_id=${entry.id}`);
-      } else {
-        console.log(`[ROUTE /vision/check]   No instructorCode — skipping verification queue`);
-      }
-    } catch (e) {
-      console.error(`[ROUTE /vision/check] ✗ Failed to queue for review:`, e);
-    }
   } else {
     result.verification_status = "failed";
     console.log(`[ROUTE /vision/check] ✗ FAILED — good image but wrong reading, pass=${result.pass} conf=${result.confidence} attempt=${attempts}`);
+  }
+
+  // ─── Persist the submitted photo, whatever the outcome ────────────
+  //
+  // Previously ONLY "needs_review" captures were written, so an auto-verified
+  // photo — the overwhelming majority — was analysed and then thrown away. The
+  // instructor could never see the evidence behind a passed step, and a
+  // rejected or blurry attempt left no trace at all. Every submission is now
+  // recorded with the outcome it actually got.
+  //
+  // Only "needs_review" is stored as "pending", so the instructor's action
+  // queue and its badge count behave exactly as before — the rest is evidence,
+  // not a task.
+  if (body.session_id && labRow?.instructorCode) {
+    const storedStatus =
+      result.verification_status === "needs_review" ? "pending"
+      : result.verification_status === "auto_verified" ? "auto_verified"
+      : result.verification_status === "retake" ? "retake"
+      : "failed";
+    try {
+      const entry = await submitVerification({
+        session_id: body.session_id,
+        student_name: labRow.studentName,
+        step_number: body.step_number,
+        image_base64: body.image_base64,
+        ai_reading: result.reading,
+        ai_confidence: result.confidence,
+        ai_message: `Confidence ${(result.confidence * 100).toFixed(0)}% (${result.verification_status}): ${result.message}`,
+        submitted_at: new Date().toISOString(),
+        image_hash: fp,
+      }, storedStatus);
+      console.log(`[ROUTE /vision/check] ✓ Photo saved as "${storedStatus}": entry_id=${entry.id}`);
+    } catch (e) {
+      // Never fail the student's step because the evidence write failed —
+      // the verification result itself is still valid and already computed.
+      console.error(`[ROUTE /vision/check] ✗ Failed to save photo evidence:`, e);
+    }
+  } else if (body.session_id && !labRow?.instructorCode) {
+    console.log(`[ROUTE /vision/check]   Solo/library session — no class to record evidence against`);
   }
 
   if (result.manual_override_available) {
@@ -1166,6 +1207,66 @@ app.get("/lab/:sessionId/audit", async (c) => {
 // ─── Risk ranking across a session ───────────────────────────────────
 // Ranks who the instructor should walk over to first, and sets a per-student
 // auto-verification bar so scarce attention goes where the risk actually is.
+// ─── Class analytics, student records, and saved photos ──────────────
+//
+// Everything the app already records, finally readable by the instructor who
+// owns the class. All three are ownership-scoped the same way as every other
+// instructor route — a code you don't own returns 404, not someone else's data.
+
+app.get("/instructor/sessions/:code/analytics", async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);
+  const analytics = await getSessionAnalytics(code);
+  if (!analytics) return c.json({ error: "Not found" }, 404);
+  return c.json(analytics);
+});
+
+/** One student's complete experiment record — every step, timing, photo, note. */
+app.get("/instructor/students/:sessionId/record", async (c) => {
+  const { sessionId } = c.req.param();
+  // Reuse the same access rule as the student-facing session routes, so an
+  // instructor sees exactly the sessions they already have a right to see.
+  const access = await sessionAccess(sessionId, c.get("user"));
+  if (access === "not_found") return c.json({ error: "Not found" }, 404);
+  if (access === "forbidden") return c.json({ error: "Forbidden" }, 403);
+  const record = await getStudentRecord(sessionId);
+  if (!record) return c.json({ error: "Not found" }, 404);
+  return c.json(record);
+});
+
+/**
+ * The bytes of one submitted photo.
+ *
+ * Photos were always written to the database, but the verification list stops
+ * shipping base64 for resolved entries to keep that payload small — which meant
+ * an approved or rejected photo became unreachable. Serving them one at a time,
+ * on demand, keeps lists light AND makes every photo permanently viewable.
+ */
+app.get("/instructor/verifications/:id/image", async (c) => {
+  const { id } = c.req.param();
+  if (!(await instructorOwnsVerification(id, c.get("user").id))) return c.json({ error: "Not found" }, 404);
+  const image = await getVerificationImage(id);
+  if (!image) return c.json({ error: "Not found" }, 404);
+  const raw = image.includes(",") ? image.split(",", 2)[1] ?? "" : image;
+  const bytes = Buffer.from(raw, "base64");
+  return new Response(new Uint8Array(bytes), {
+    headers: {
+      "Content-Type": "image/jpeg",
+      // Deliberately NOT cached, despite the bytes never changing.
+      //
+      // These are students' submitted photos behind an ownership check, and lab
+      // machines are shared. With a long-lived cache the browser replays a hit
+      // WITHOUT re-contacting the server, so after instructor A logs out and
+      // instructor B logs in on the same computer, B could be served A's
+      // students' photos straight from cache — the ownership check never runs.
+      // Verified: a cached fetch returned 200 for a non-owner while a
+      // no-store fetch correctly returned 404. The images are a few KB, so
+      // re-fetching costs far less than that leak.
+      "Cache-Control": "private, no-store, max-age=0",
+    },
+  });
+});
+
 app.get("/instructor/sessions/:code/risk", async (c) => {
   const code = c.req.param("code").toUpperCase();
   if (!(await instructorOwnsCode(code, c.get("user").id))) return c.json({ error: "Not found" }, 404);

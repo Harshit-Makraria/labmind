@@ -2,13 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, FileDown,
+  AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, FileDown, FileSearch,
   FlaskConical, RefreshCw, ShieldAlert, Square, Target, Users,
 } from "lucide-react";
 import Link from "next/link";
 import { use, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/ui/data-states";
+import { SessionAnalytics } from "@/components/instructor/SessionAnalytics";
 import { fetchJson, isForbidden } from "@/lib/api-client";
 import type { SessionSummary, InstructorSession } from "@/lib/types";
 
@@ -248,6 +249,15 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
                   >
                     <Download size={13} /> Report
                   </Link>
+                  {/* The complete record — every step, timing, photo and safety
+                      event this student generated. All of it was already
+                      stored; this is the first way to actually read it. */}
+                  <Link
+                    href={`/instructor/students/${s.session_id}`}
+                    className="ml-3 inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-brand)] hover:underline"
+                  >
+                    <FileSearch size={13} /> Full record
+                  </Link>
                 </td>
               </tr>
             ))}
@@ -255,6 +265,10 @@ export default function SessionDetailPage({ params }: { params: Promise<{ code: 
         </table>
         </div>
       </div>
+
+      {/* Full class analytics — participation, results, evidence, per-step
+          difficulty. Everything below is derived from data already recorded. */}
+      <SessionAnalytics code={code} />
 
       {/* Analytics summary */}
       {students.length > 0 && (
