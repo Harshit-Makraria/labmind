@@ -7,6 +7,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { invalidateSessionCache } from "@/server/store/session-store";
 import { getExperiment } from "@/server/experiments";
+import { putPhoto } from "@/server/storage/photo-store";
 import type { InstructorSession, Protocol, StepRecord, VerificationEntry, VerificationStatus } from "@/lib/types";
 
 const VISION_UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", absorbance: "AU", colour_change: "" };
@@ -250,6 +251,9 @@ export async function submitVerification(
   entry: Omit<VerificationEntry, "id" | "status" | "instructor_comment" | "resolved_at"> & { image_hash?: string | null },
   status: VerificationStatus = "pending",
 ): Promise<VerificationEntry> {
+  // The row is created first so the entry id can key the stored object. The
+  // image column is then either cleared (photo is in the bucket) or left as
+  // the inline copy (no object storage configured, or the upload failed).
   const row = await db.verificationEntry.create({
     data: {
       sessionId: entry.session_id,
@@ -265,6 +269,18 @@ export async function submitVerification(
       resolvedAt: status === "pending" ? null : new Date(),
     },
   });
+
+  if (entry.image_base64) {
+    const key = await putPhoto(row.id, entry.image_base64);
+    if (key) {
+      // Drop the inline copy — keeping both would defeat the point of moving
+      // the bytes out of Postgres in the first place.
+      await db.verificationEntry.update({ where: { id: row.id }, data: { imageKey: key, imageBase64: "" } });
+      // The returned entry carries no inline image now — callers use its id,
+      // and the bytes are served by the per-image endpoint.
+      return rowToEntry({ ...row, imageBase64: "" });
+    }
+  }
   return rowToEntry(row);
 }
 

@@ -74,6 +74,27 @@ reintroduces it.
 - **Qualitative answers are never auto-graded.** A keyword match would be a
   confident wrong verdict. They go to the instructor.
 
+- **Every submitted photo is kept, whatever the outcome.** Auto-verified,
+  failed, retake and duplicate captures are all persisted — only
+  `needs_review` is stored as `pending`, because only that is an instructor
+  *task*. Previously just the queued ones were saved and everything else was
+  analysed then discarded.
+
+- **Photos read from both storage locations.** `imageKey` (object storage) wins;
+  `imageBase64` (inline) is the fallback and covers every older row. Never
+  assume one or the other — that dual read is what makes the migration
+  backfill-free.
+
+- **Erasure must reach the bucket.** Deleting a user's rows is not enough once
+  photos live in object storage; collect `photoKeysForSessions()` and call
+  `deletePhotos()` *before* deleting the rows, or the images survive and the
+  Privacy Policy's erasure promise becomes false.
+
+- **Authenticated media must not be cached.** The photo endpoint sends
+  `no-store`. It once sent `immutable` with a one-year lifetime, and on a
+  shared lab machine the browser replayed a cached hit for the *next* login
+  without re-running the ownership check.
+
 - **Safety rules stay human-authored.** The AI may explain a safety rule; it may
   never invent, infer or retire one.
 

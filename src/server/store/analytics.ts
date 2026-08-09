@@ -21,6 +21,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { getExperiment } from "@/server/experiments";
 import { analysePacing } from "@/server/tools/pacing";
+import { getPhoto } from "@/server/storage/photo-store";
 import type {
   Protocol, StepRecord, SafetyLogEntry,
   SessionAnalytics, StepAnalytics, StudentRecord,
@@ -315,8 +316,39 @@ export async function getStudentRecord(sessionId: string): Promise<StudentRecord
   };
 }
 
-/** Raw image bytes for one verification entry. Callers MUST check ownership first. */
-export async function getVerificationImage(id: string): Promise<string | null> {
-  const row = await db.verificationEntry.findUnique({ where: { id }, select: { imageBase64: true } });
-  return row?.imageBase64 ?? null;
+/**
+ * Raw image bytes for one verification entry. Callers MUST check ownership first.
+ *
+ * Reads from wherever the photo actually lives: the object-storage bucket for
+ * rows written since that was configured, or the inline base64 column for
+ * everything older. Handling both is what makes the migration backfill-free.
+ */
+export async function getVerificationImage(id: string): Promise<Buffer | null> {
+  const row = await db.verificationEntry.findUnique({
+    where: { id },
+    select: { imageBase64: true, imageKey: true },
+  });
+  if (!row) return null;
+
+  if (row.imageKey) {
+    const bytes = await getPhoto(row.imageKey);
+    if (bytes) return bytes;
+    // The key exists but the object didn't load. Fall through to the inline
+    // copy on the off-chance one is still there, rather than 500-ing.
+    console.error(`[ANALYTICS] verification ${id} has key ${row.imageKey} but no object could be read`);
+  }
+
+  const raw = row.imageBase64;
+  if (!raw) return null;
+  return Buffer.from(raw.includes(",") ? raw.split(",", 2)[1] ?? "" : raw, "base64");
+}
+
+/** Storage keys for every photo belonging to these sessions — for erasure. */
+export async function photoKeysForSessions(sessionIds: string[]): Promise<string[]> {
+  if (!sessionIds.length) return [];
+  const rows = await db.verificationEntry.findMany({
+    where: { sessionId: { in: sessionIds }, NOT: { imageKey: null } },
+    select: { imageKey: true },
+  });
+  return rows.map((r) => r.imageKey).filter((k): k is string => !!k);
 }

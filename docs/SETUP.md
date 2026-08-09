@@ -61,6 +61,36 @@ Then fill in the four required values. **Where each real value lives:**
 | `OPENAI_API_KEY` | no | platform.openai.com → API keys |
 | `GEMINI_API_KEY` | no | aistudio.google.com → API keys |
 | `ANTHROPIC_API_KEY` | no | console.anthropic.com → API keys |
+| `SUPABASE_URL` | no | Supabase → Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | no | Supabase → Settings → API → `service_role` key. **Server-side only — never expose it to the browser.** |
+| `SUPABASE_STORAGE_BUCKET` | no | Defaults to `lab-photos` |
+
+### Photo storage (optional but recommended before real classes)
+
+Submitted lab photos are stored **inline in Postgres as base64** unless the
+three `SUPABASE_*` variables above are set. That needs no configuration and
+works perfectly for a demo, but base64 inflates bytes by ~33% and puts binary
+data in the primary database — a term of real classes would bloat it badly.
+
+With those variables set, photos go to a Supabase Storage bucket instead and
+only the object key is kept in Postgres.
+
+To turn it on:
+
+1. Supabase → Storage → **New bucket** named `lab-photos`. Keep it **private**
+   — the app serves photos through an ownership-checked API route, never by
+   public URL.
+2. Add `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to `.env` (and to Vercel).
+3. Restart. Confirm with:
+   ```bash
+   curl -s http://localhost:3000/api/meta
+   ```
+   `photo_storage` reads `"object_storage"` when active, `"database"` when not.
+
+**No backfill is needed.** Reads handle both locations, so photos written before
+you enabled this keep working forever. If an upload ever fails, the app silently
+falls back to storing that one photo in the database rather than losing the
+student's evidence.
 
 > **Do not regenerate `AUTH_SECRET`.** It signs session cookies. A new value
 > silently invalidates every existing login, on every device, in production.

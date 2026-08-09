@@ -162,7 +162,13 @@ model VerificationEntry {
   session           LabSession @relation(fields: [sessionId], references: [id])
   studentName       String
   stepNumber        Int
+  /// Legacy inline storage. Still written when object storage isn't configured,
+  /// and still READ for every row created before imageKey existed — so no
+  /// backfill is ever required. Empty string when imageKey carries the photo.
   imageBase64       String     @db.Text
+  /// Object-storage key (e.g. "verifications/<id>.jpg") when the photo lives in
+  /// the bucket instead of in this row. Null means "look in imageBase64".
+  imageKey          String?
   /// Perceptual dHash — detects the same photo resubmitted for another step.
   imageHash         String?
   aiReading         Float?

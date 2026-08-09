@@ -35,7 +35,8 @@ import {
   skipStep, upsertSession,
 } from "@/server/store/session-store";
 import { db } from "@/server/db";
-import { getSessionAnalytics, getStudentRecord, getVerificationImage } from "@/server/store/analytics";
+import { getSessionAnalytics, getStudentRecord, getVerificationImage, photoKeysForSessions } from "@/server/store/analytics";
+import { deletePhotos, objectStorageEnabled } from "@/server/storage/photo-store";
 import {
   addStudentToSession, createInstructorSession, getInstructorSession,
   instructorOwnsCode, instructorOwnsVerification,
@@ -154,6 +155,10 @@ app.get("/meta", (c) => {
     keys_exhausted: keysExhausted,
     exhausted_providers: exhaustedProviders(),
     agent_tools: AGENT_TOOL_NAMES,
+    // Whether submitted photos go to the object-storage bucket or are still
+    // inlined into Postgres. Worth being able to check without reading logs —
+    // the fallback is silent by design, so "it works" doesn't tell you which.
+    photo_storage: objectStorageEnabled() ? "object_storage" : "database",
   });
 });
 
@@ -1245,10 +1250,8 @@ app.get("/instructor/students/:sessionId/record", async (c) => {
 app.get("/instructor/verifications/:id/image", async (c) => {
   const { id } = c.req.param();
   if (!(await instructorOwnsVerification(id, c.get("user").id))) return c.json({ error: "Not found" }, 404);
-  const image = await getVerificationImage(id);
-  if (!image) return c.json({ error: "Not found" }, 404);
-  const raw = image.includes(",") ? image.split(",", 2)[1] ?? "" : image;
-  const bytes = Buffer.from(raw, "base64");
+  const bytes = await getVerificationImage(id);
+  if (!bytes) return c.json({ error: "Not found" }, 404);
   return new Response(new Uint8Array(bytes), {
     headers: {
       "Content-Type": "image/jpeg",
@@ -1410,6 +1413,12 @@ app.post("/profile/delete", async (c) => {
   const ownSessions = await db.labSession.findMany({ where: { userId: authUser.id }, select: { id: true } });
   const ids = ownSessions.map((s) => s.id);
   if (ids.length) {
+    // Photos now live in object storage, so deleting the rows is no longer
+    // enough — the images would survive in the bucket and the erasure promise
+    // in the Privacy Policy would be false. Collect the keys BEFORE the rows
+    // are gone, then remove the objects.
+    const keys = await photoKeysForSessions(ids);
+    await deletePhotos(keys);
     await db.verificationEntry.deleteMany({ where: { sessionId: { in: ids } } });
     await db.agentDecision.deleteMany({ where: { sessionId: { in: ids } } });
     await db.auditLogEntry.deleteMany({ where: { sessionId: { in: ids } } });
