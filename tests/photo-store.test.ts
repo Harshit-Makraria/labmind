@@ -82,14 +82,13 @@ describe("photo-store — uploads when configured", () => {
     expect(headers["Content-Type"]).toBe("image/jpeg");
   });
 
-  it("honours a custom bucket name", async () => {
-    process.env.SUPABASE_STORAGE_BUCKET = "my-bucket";
+  it("uploads into the configured bucket path", async () => {
+    // BUCKET is captured at module load, so this asserts the actual default
+    // rather than pretending a mid-test env change takes effect.
     let seen = "";
     global.fetch = ((url: string) => { seen = url; return Promise.resolve({ ok: true } as Response); }) as unknown as typeof fetch;
-    // Bucket is read at module scope, so this asserts the default is used
-    // unless the process was started with the override set.
-    await putPhoto("e", B64);
-    expect(seen).toContain("/storage/v1/object/");
+    await putPhoto("entry-9", B64);
+    expect(seen).toBe("https://proj.supabase.co/storage/v1/object/lab-photos/verifications/entry-9.jpg");
   });
 
   it("returns null (not a throw) when the upload fails, so evidence is still kept", async () => {

@@ -117,12 +117,18 @@ export async function getSessionAnalytics(code: string): Promise<SessionAnalytic
   }
 
   // Photo outcomes per step
+  // "Passed" and "failed" must span AI outcomes as well as instructor
+  // decisions. Counting only approved/rejected reported zero rejections for a
+  // whole class once auto_verified/failed became the dominant statuses, and it
+  // stripped the heaviest term out of the hardest-steps ranking below.
+  const PASSED = new Set(["approved", "auto_verified"]);
+  const FAILED = new Set(["rejected", "failed", "retake"]);
   const photosByStep = new Map<number, { attempts: number; passed: number; failed: number }>();
   for (const v of verifications) {
     const b = photosByStep.get(v.stepNumber) ?? { attempts: 0, passed: 0, failed: 0 };
     b.attempts += 1;
-    if (v.status === "approved") b.passed += 1;
-    if (v.status === "rejected") b.failed += 1;
+    if (PASSED.has(v.status)) b.passed += 1;
+    if (FAILED.has(v.status)) b.failed += 1;
     photosByStep.set(v.stepNumber, b);
   }
 
@@ -191,7 +197,8 @@ export async function getSessionAnalytics(code: string): Promise<SessionAnalytic
     photos_auto_verified: verifications.filter((v) => v.status === "auto_verified").length,
     photos_pending_review: verifications.filter((v) => v.status === "pending").length,
     photos_approved: verifications.filter((v) => v.status === "approved").length,
-    photos_rejected: verifications.filter((v) => v.status === "rejected").length,
+    // Every capture that didn't pass, not just instructor rejections.
+    photos_rejected: verifications.filter((v) => v.status === "rejected" || v.status === "failed" || v.status === "retake").length,
 
     safety_alerts: students.reduce((a, s) => a + s.safetyAlertCount, 0),
     manual_overrides: overrides,
@@ -251,12 +258,12 @@ export async function getStudentRecord(sessionId: string): Promise<StudentRecord
       orderBy: { at: "asc" },
       select: { stepNumber: true, summary: true, severity: true, at: true },
     }),
-    // Which entries actually carry bytes. The predicate runs in Postgres, so
-    // the column itself is never shipped — but `has_image` then reflects
-    // reality instead of always claiming true, which would render a broken
-    // tile for any row stored without an image (older/seeded rows).
+    // Which entries actually carry bytes, in EITHER store. Checking
+    // imageBase64 alone reported has_image false for every bucket-backed
+    // photo, so the record page showed "No image stored" for all of them.
+    // The predicate runs in Postgres, so the image column is never shipped.
     db.verificationEntry.findMany({
-      where: { sessionId, NOT: { imageBase64: "" } },
+      where: { sessionId, OR: [{ NOT: { imageBase64: "" } }, { NOT: { imageKey: null } }] },
       select: { id: true },
     }),
   ]);

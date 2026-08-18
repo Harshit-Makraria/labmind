@@ -7,7 +7,7 @@ import "server-only";
 import { db } from "@/server/db";
 import { invalidateSessionCache } from "@/server/store/session-store";
 import { getExperiment } from "@/server/experiments";
-import { putPhoto } from "@/server/storage/photo-store";
+import { deletePhotos, putPhoto } from "@/server/storage/photo-store";
 import type { InstructorSession, Protocol, StepRecord, VerificationEntry, VerificationStatus } from "@/lib/types";
 
 const VISION_UNIT: Record<string, string> = { burette_reading: "mL", gel_band: "bp", absorbance: "AU", colour_change: "" };
@@ -220,7 +220,8 @@ export async function addStudentToSession(code: string, studentSessionId: string
 
 function rowToEntry(row: {
   id: string; sessionId: string; studentName: string; stepNumber: number;
-  imageBase64?: string; aiReading: number | null; aiConfidence: number; aiMessage: string | null;
+  imageBase64?: string; imageKey?: string | null;
+  aiReading: number | null; aiConfidence: number; aiMessage: string | null;
   submittedAt: Date; status: string; instructorComment: string | null; resolvedAt: Date | null;
 }): VerificationEntry {
   return {
@@ -229,6 +230,10 @@ function rowToEntry(row: {
     student_name: row.studentName,
     step_number: row.stepNumber,
     image_base64: row.imageBase64 ?? "",
+    // A photo exists if EITHER store holds it. Deciding from imageBase64
+    // alone made every bucket-backed photo look like a manual override with
+    // no image, which is how the verify queue lost its thumbnails.
+    has_image: !!row.imageKey || !!row.imageBase64,
     ai_reading: row.aiReading,
     ai_confidence: row.aiConfidence,
     ai_message: row.aiMessage ?? "",
@@ -248,7 +253,8 @@ function rowToEntry(row: {
  * without any of them landing in the instructor's action queue.
  */
 export async function submitVerification(
-  entry: Omit<VerificationEntry, "id" | "status" | "instructor_comment" | "resolved_at"> & { image_hash?: string | null },
+  // has_image is derived on read from where the bytes ended up, never supplied.
+  entry: Omit<VerificationEntry, "id" | "status" | "instructor_comment" | "resolved_at" | "has_image"> & { image_hash?: string | null },
   status: VerificationStatus = "pending",
 ): Promise<VerificationEntry> {
   // The row is created first so the entry id can key the stored object. The
@@ -275,7 +281,19 @@ export async function submitVerification(
     if (key) {
       // Drop the inline copy — keeping both would defeat the point of moving
       // the bytes out of Postgres in the first place.
-      await db.verificationEntry.update({ where: { id: row.id }, data: { imageKey: key, imageBase64: "" } });
+      //
+      // If this update fails the object is already in the bucket but nothing
+      // records its key, so photoKeysForSessions() could never find it and
+      // erasure would leave the photo behind. Delete the orphan and keep the
+      // inline copy instead: the evidence survives either way, and the
+      // erasure invariant holds.
+      try {
+        await db.verificationEntry.update({ where: { id: row.id }, data: { imageKey: key, imageBase64: "" } });
+      } catch (e) {
+        console.error(`[PHOTO-STORE] could not record key ${key} — removing the orphaned object:`, e);
+        await deletePhotos([key]);
+        return rowToEntry(row);
+      }
       // The returned entry carries no inline image now — callers use its id,
       // and the bytes are served by the per-image endpoint.
       return rowToEntry({ ...row, imageBase64: "" });
@@ -286,6 +304,10 @@ export async function submitVerification(
 
 const BASE_FIELDS = {
   id: true, sessionId: true, studentName: true, stepNumber: true,
+  // imageKey is cheap (a short string) and is what tells a caller a photo
+  // EXISTS once the bytes live in the bucket. Without it every list read sees
+  // an empty imageBase64 and concludes there is no photo.
+  imageKey: true,
   aiReading: true, aiConfidence: true, aiMessage: true, submittedAt: true,
   status: true, instructorComment: true, resolvedAt: true,
   session: { select: { experimentId: true } },
@@ -345,7 +367,12 @@ export async function instructorOwnsVerification(verificationId: string, userId:
     select: { session: { select: { instructorCode: true } } },
   });
   if (!entry) return false;
-  if (!entry.session.instructorCode) return true; // no class attached — nothing to scope
+  // A session with no class has no owner to check against, so there is no
+  // basis on which to grant access. This used to return true — which was
+  // harmless while it only guarded resolving a queued item, but the photo-byte
+  // endpoint now uses the same check, and returning true there let ANY
+  // instructor fetch those images by id. Deny instead.
+  if (!entry.session.instructorCode) return false;
   return instructorOwnsCode(entry.session.instructorCode, userId);
 }
 

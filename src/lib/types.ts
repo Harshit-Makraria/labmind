@@ -453,7 +453,15 @@ export interface VerificationEntry {
   session_id: string;
   student_name: string;
   step_number: number;
+  /**
+   * Inline copy — populated only when the photo is stored in Postgres. Empty
+   * when it lives in object storage, so NEVER use this to decide whether a
+   * photo exists; use `has_image` and fetch the bytes from
+   * /api/instructor/verifications/:id/image.
+   */
   image_base64: string;
+  /** True when a photo exists in EITHER storage location. */
+  has_image: boolean;
   ai_reading: number | null;
   ai_confidence: number;
   ai_message: string;

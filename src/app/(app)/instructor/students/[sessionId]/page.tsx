@@ -83,7 +83,13 @@ export default function StudentRecordPage() {
           value={data.student_result !== null ? String(data.student_result) : "—"}
           sub={data.deviation_percent !== null ? `${data.deviation_percent}% deviation` : "not submitted"}
         />
-        <Stat label="Photos submitted" value={String(data.photos.length)} sub={`${data.photos.filter((p) => p.status === "rejected").length} rejected`} />
+        {/* Counting only "rejected" ignored AI-failed and duplicate captures,
+            which are now the common failure statuses. */}
+        <Stat
+          label="Photos submitted"
+          value={String(data.photos.length)}
+          sub={`${data.photos.filter((p) => p.status === "rejected" || p.status === "failed" || p.status === "retake").length} didn't pass`}
+        />
         <Stat
           label="Integrity"
           value={String(data.safety_alert_count + data.duplicate_photo_count)}
@@ -226,6 +232,20 @@ export default function StudentRecordPage() {
             <ShieldAlert size={15} /> Safety &amp; audit trail
           </h2>
           <div className="card divide-y divide-black/5">
+            {/* Safety events recorded on the session itself. These were gating
+                this whole section but were never rendered, so a session with
+                safety events and no audit rows showed an empty card. */}
+            {data.safety_log.map((entry, i) => (
+              <div key={`safety-${i}`} className="flex items-start gap-2 p-3">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--color-danger)]" />
+                <div className="min-w-0">
+                  <p className="text-sm text-[var(--color-navy)]">
+                    Step {entry.step_number} — {entry.alerts.map((a) => `${a.type} (${a.severity})`).join("; ") || "safety alert"}
+                  </p>
+                  <p className="text-xs text-[var(--color-muted)]">{fmtTime(entry.at)}</p>
+                </div>
+              </div>
+            ))}
             {data.audit.map((a, i) => (
               <div key={i} className="flex items-start gap-2 p-3">
                 <AlertTriangle

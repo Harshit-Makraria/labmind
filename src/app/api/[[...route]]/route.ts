@@ -356,11 +356,18 @@ app.post("/vision/check", async (c) => {
     recordTrace("vision_tool", `step ${body.step_number} fingerprint`, "duplicate-photo guard skipped — image could not be fingerprinted", Date.now() - t0, 0);
   }
   if (fp && body.session_id) {
+    // Persisting EVERY capture (not just queued ones) made this corpus grow
+    // by roughly an order of magnitude, and it sits on the student's critical
+    // path with an O(n) hamming comparison below. Bounded to the most recent
+    // submissions: photo reuse is a within-session behaviour, so the newest
+    // captures are the ones a duplicate would actually match.
     const priorImages = await db.verificationEntry.findMany({
       where: labRow?.instructorCode
         ? { session: { instructorCode: labRow.instructorCode }, NOT: { imageHash: null } }
         : { sessionId: body.session_id, NOT: { imageHash: null } },
       select: { imageHash: true, stepNumber: true, sessionId: true, studentName: true },
+      orderBy: { submittedAt: "desc" },
+      take: 500,
     });
     const clash = priorImages.find(
       (p) => !(p.sessionId === body.session_id && p.stepNumber === body.step_number) && p.imageHash && isDuplicate(fp, p.imageHash),

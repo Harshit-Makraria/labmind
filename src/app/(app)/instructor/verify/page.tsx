@@ -9,6 +9,23 @@ import { fetchJson, isForbidden } from "@/lib/api-client";
 import { VISION_HIGH_CONFIDENCE } from "@/lib/types";
 import type { AccuracyReport, VerificationEntry } from "@/lib/types";
 
+/**
+ * Where to load a submitted photo from.
+ *
+ * Photos live in one of two places: inline base64 (older rows, or installs with
+ * no object storage configured) or the storage bucket, in which case the bytes
+ * come from the ownership-checked API route. Returns null only when there is
+ * genuinely no photo — i.e. a real manual override.
+ */
+function photoSrc(v: VerificationEntry): string | null {
+  if (v.image_base64) {
+    return v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`;
+  }
+  if (v.has_image) return `/api/instructor/verifications/${v.id}/image`;
+  return null;
+}
+
+
 export default function VerifyPage() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -86,7 +103,7 @@ export default function VerifyPage() {
     });
   }, [pending]);
 
-  const highConfidenceIds = pending.filter((v) => v.image_base64 && v.ai_confidence >= VISION_HIGH_CONFIDENCE).map((v) => v.id);
+  const highConfidenceIds = pending.filter((v) => v.has_image && v.ai_confidence >= VISION_HIGH_CONFIDENCE).map((v) => v.id);
   const toggleBulk = (id: string) =>
     setBulkIds((prev) => {
       const next = new Set(prev);
@@ -289,7 +306,11 @@ function QueueRow({
 }) {
   const confidencePct = Math.round(v.ai_confidence * 100);
   const isLow = v.ai_confidence < VISION_HIGH_CONFIDENCE;
-  const isOverride = !v.image_base64;
+  // A genuine manual override is an entry with NO photo in either store.
+  // Testing image_base64 alone marked every bucket-backed photo as an
+  // override, so instructors were asked to approve captures they couldn't see.
+  const isOverride = !v.has_image;
+  const imageSrc = photoSrc(v);
   const minsAgo = Math.max(0, Math.round((Date.now() - new Date(v.submitted_at).getTime()) / 60000));
 
   return (
@@ -309,8 +330,8 @@ function QueueRow({
         <div
           className="h-[58px] w-[46px] shrink-0 rounded-lg bg-cover bg-center"
           style={{
-            background: v.image_base64
-              ? `center / cover no-repeat url(${v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`})`
+            background: imageSrc
+              ? `center / cover no-repeat url(${imageSrc})`
               : "linear-gradient(160deg,#3a4650,#20272e)",
           }}
         />
@@ -363,10 +384,10 @@ function ReviewDetail({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        {v.image_base64 ? (
+        {photoSrc(v) ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={v.image_base64.startsWith("data:") ? v.image_base64 : `data:image/jpeg;base64,${v.image_base64}`}
+            src={photoSrc(v)!}
             alt={`Step ${v.step_number} capture`}
             className="anim-scale-in h-56 w-full rounded-[0.9rem] object-contain bg-black/5"
           />
